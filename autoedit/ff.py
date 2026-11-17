@@ -15,9 +15,12 @@ class FFError(RuntimeError):
 def _find(name: str) -> str:
     exe = name + (".exe" if os.name == "nt" else "")
     # 설치형으로 묶을 때: 실행 파일 옆 bin/ 폴더를 먼저 본다
-    bases = [Path(getattr(sys, "_MEIPASS", "")), Path(sys.argv[0]).resolve().parent, Path(__file__).resolve().parent.parent]
+    bases = [Path(sys.argv[0]).resolve().parent, Path(__file__).resolve().parent.parent]
+    if getattr(sys, "_MEIPASS", ""):
+        bases.insert(0, Path(sys._MEIPASS))
     for base in bases:
-        cand = base / "bin" / exe
+        # 절대 경로로 바꿔 둔다: FFmpeg는 작업 폴더를 옮겨서 실행하므로 상대 경로면 못 찾는다
+        cand = (base / "bin" / exe).resolve()
         if cand.is_file():
             if os.name != "nt" and not os.access(cand, os.X_OK):
                 try:
