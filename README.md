@@ -8,7 +8,20 @@ PC 안에서만 도는 웹 화면으로 조작합니다. 영상은 어디에도 
                                          (규칙 기반 또는 Claude API)      (FFmpeg)
 ```
 
-## 준비물
+## 설치 파일로 쓰기
+
+GitHub 릴리스에서 내려받습니다. FFmpeg가 함께 들어 있습니다.
+
+- Windows: `auto-edit-버전-windows-setup.exe`
+- macOS (Apple Silicon): `auto-edit-버전-macos-arm64.dmg`
+
+서명하지 않은 프로그램이라 처음 실행할 때 경고가 뜹니다 (Windows: 추가 정보 → 실행, macOS: 시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기).
+
+새 설치 파일 만들기: `git tag v0.1.1 && git push origin v0.1.1` 또는 GitHub의 Actions → release → Run workflow.
+설치 확인만 하려면 `python run.py --selftest`.
+
+## 소스로 실행하기 — 준비물
+
 
 | 항목 | Windows | macOS |
 |---|---|---|
@@ -69,6 +82,8 @@ python run.py
 | `autoedit/render.py` | FFmpeg 렌더 (HDR 변환, 음량, 배경음, 자막) |
 | `autoedit/server.py` | 로컬 웹 서버 |
 | `autoedit/web/index.html` | 화면 |
+| `autoedit/selftest.py` | 설치 확인 (`--selftest`) |
+| `packaging/`, `.github/workflows/release.yml` | 설치 파일 빌드 (PyInstaller, Inno Setup, GitHub Actions) |
 | `examples/편집본_v1.edl.json` | 2026-11-16 수작업 편집본과 같은 지시서 |
 
 ## 확인된 것과 안 된 것 (2026-11-17)

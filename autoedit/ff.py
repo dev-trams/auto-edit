@@ -19,8 +19,19 @@ def _find(name: str) -> str:
     for base in bases:
         cand = base / "bin" / exe
         if cand.is_file():
+            if os.name != "nt" and not os.access(cand, os.X_OK):
+                try:
+                    cand.chmod(0o755)
+                except OSError:
+                    pass
             return str(cand)
     found = shutil.which(name)
+    if not found and os.name != "nt":
+        # 맥에서 앱으로 실행하면 PATH에 Homebrew 경로가 빠져 있다
+        for d in ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"):
+            if (Path(d) / exe).is_file():
+                found = str(Path(d) / exe)
+                break
     if not found:
         raise FFError(f"{name}를 찾을 수 없습니다. FFmpeg를 설치해 주세요.")
     return found

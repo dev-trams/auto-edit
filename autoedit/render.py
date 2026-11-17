@@ -2,6 +2,7 @@
 import hashlib
 import re
 import shutil
+import sys
 from pathlib import Path
 
 from . import config, edl as edl_mod, ff, style
@@ -123,6 +124,9 @@ def render(edl: dict, src_dir: Path, out_path: Path, quality: str = "final", pro
         if fonts.is_dir() and any(fonts.iterdir()):
             shutil.copytree(fonts, job_dir / "fonts", dirs_exist_ok=True)
             sub += ":fontsdir=fonts"
+        elif sys.platform == "darwin" and Path("/System/Library/Fonts").is_dir():
+            # 함께 묶은 FFmpeg는 시스템 글꼴 설정을 못 찾을 수 있어 폴더를 직접 알려 준다
+            sub += ":fontsdir=/System/Library/Fonts"
         chains.append(f"[0:v]{sub}[vout]")
         vmap = "[vout]"
 
