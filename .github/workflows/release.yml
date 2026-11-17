@@ -1,22 +1,63 @@
 name: release
 
-# 태그(v0.1.0 등)를 올리거나 Actions 화면에서 직접 실행하면
-# 윈도우 설치 파일과 맥 dmg를 만들어 GitHub 릴리스에 올린다.
+# main에 머지(푸시)되면 버전을 하나 올려 윈도우 설치 파일과 맥 dmg를 만들고,
+# 그 버전의 태그와 GitHub 릴리스를 자동으로 만든다.
+#  - main 푸시: 마지막 태그의 끝자리를 하나 올린다 (v0.1.2 -> v0.1.3). 문서만 바뀐 푸시는 건너뛴다.
+#  - 태그(v1.0.0 등)를 직접 올리면 그 버전으로 만든다.
+#  - Actions 화면에서 버전을 적어 직접 실행할 수도 있다.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
+    paths-ignore:
+      - "**.md"
+      - "examples/**"
   workflow_dispatch:
     inputs:
       version:
-        description: "버전 (예: 0.1.0)"
-        required: true
-        default: "0.1.0"
+        description: "버전 (예: 0.2.0). 비우면 자동으로 하나 올림"
+        required: false
+        default: ""
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            V="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            V="${{ inputs.version }}"
+            V="${V#v}"
+          else
+            git fetch --tags --force --quiet
+            LAST=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)
+            if [[ -z "$LAST" ]]; then
+              V="0.1.0"
+            else
+              IFS=. read -r MA MI PA <<< "${LAST#v}"
+              V="$MA.$MI.$((PA + 1))"
+            fi
+          fi
+          if ! [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "잘못된 버전: $V"; exit 1; fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "버전: $V"
+
   build:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -31,6 +72,7 @@ jobs:
         shell: bash
     env:
       PYTHONUTF8: "1"
+      APP_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,15 +80,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Version
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; else V="${{ inputs.version }}"; fi
-          echo "APP_VERSION=$V" >> "$GITHUB_ENV"
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
+
+      - name: Stamp version
+        run: |
+          python - <<'PY'
+          import os, pathlib, re
+          p = pathlib.Path("autoedit/__init__.py")
+          p.write_text(re.sub(r'__version__ = "[^"]*"', f'__version__ = "{os.environ["APP_VERSION"]}"', p.read_text(encoding="utf-8")), encoding="utf-8")
+          PY
+          grep __version__ autoedit/__init__.py
 
       - name: Fetch FFmpeg (Windows)
         if: matrix.target == 'windows'
@@ -120,24 +166,24 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
+    env:
+      APP_VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - name: Version
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; else V="${{ inputs.version }}"; fi
-          echo "APP_VERSION=$V" >> "$GITHUB_ENV"
-
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
 
+      # 태그가 없으면 이 커밋에 새로 만든다 (두 빌드가 모두 성공했을 때만 여기까지 온다)
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.APP_VERSION }}
+          target_commitish: ${{ github.sha }}
           name: auto-edit v${{ env.APP_VERSION }}
           files: artifacts/*
+          generate_release_notes: true
           body: |
             ## 설치 파일
             - **Windows**: `auto-edit-${{ env.APP_VERSION }}-windows-setup.exe`
@@ -150,4 +196,4 @@ jobs:
             - Windows: "Windows의 PC 보호" 창에서 **추가 정보 → 실행**
             - macOS: 앱을 응용 프로그램 폴더로 옮긴 뒤, 열리지 않으면 **시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기**
 
-            빌드 과정에서 자체 점검(FFmpeg 실행, 자막 입히기, 받아쓰기 엔진 불러오기)은 통과했지만, 사람이 직접 화면을 조작해 본 것은 아닙니다.
+            빌드 과정의 자체 점검(FFmpeg 실행, 자막 입히기, 받아쓰기 엔진 불러오기)은 통과한 파일입니다.

@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 
-from . import __version__, analyze, config, edl as edl_mod, ff, planner, render, style, transcribe
+from . import __version__, analyze, config, edl as edl_mod, ff, planner, reference, render, style, transcribe
 
 app = FastAPI(title="auto-edit")
 WEB = Path(__file__).parent / "web"
@@ -93,6 +93,9 @@ def state():
         "sources": _sources(d) if ff.available() else [],
         "versions": edl_mod.versions(d["out"], _project()),
         "presets": {k: v["label"] for k, v in style.PRESETS.items()},
+        "references": [p.name for p in reference.list_files()],
+        "memo": config.style_memo(),
+        "default_preset": config.default_preset(),
     }
 
 
@@ -127,6 +130,33 @@ async def upload(files: list[UploadFile] = File(...)):
                 out.write(chunk)
         saved.append(dest.name)
     return {"saved": saved}
+
+
+@app.post("/api/reference/learn")
+async def api_reference_learn(request: Request):
+    body = await request.json()
+    urls = [u.strip() for u in (body.get("urls") or "").splitlines() if u.strip()]
+    for u in urls:
+        if not u.lower().startswith(("http://", "https://")):
+            raise HTTPException(400, f"링크 형식이 아닙니다: {u[:60]}")
+
+    def work(update):
+        got = reference.download(urls, update) if urls else {"saved": [], "failed": []}
+        result = reference.learn(update)
+        result.update(downloaded=got["saved"], failed=got["failed"])
+        return result
+
+    return start_job("스타일 분석", work)
+
+
+@app.post("/api/memo")
+async def api_memo(request: Request):
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "메모 내용이 비어 있습니다.")
+    reference.save_memo(text + "\n")
+    return {"ok": True}
 
 
 @app.post("/api/analyze")

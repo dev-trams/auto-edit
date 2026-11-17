@@ -80,3 +80,10 @@ def style_memo() -> str:
             except OSError:
                 pass
     return ""
+
+
+def default_preset() -> str:
+    """스타일 메모의 '기본 자막 유형: B형' 줄에서 유형을 읽는다. 없으면 C."""
+    import re
+    m = re.search(r"기본 자막 유형\s*[:：]\s*`?([ABC])", style_memo())
+    return m.group(1) if m else "C"

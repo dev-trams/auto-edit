@@ -76,6 +76,7 @@ def rule_plan(analyses: list, mode: str = "auto", caption_lines=None, clip_len: 
         mode = "talk" if speech_ratio >= 0.3 and not caption_lines else "template"
     plan = edl_mod.blank(name)
     plan.update(planner="rule", output=_output_for(analyses))
+    plan["style"]["preset"] = config.default_preset()
     t = 0.0
     if mode == "talk":
         for a in analyses:
@@ -152,7 +153,8 @@ SYSTEM = """당신은 영상 편집자입니다. 촬영본 분석 결과를 보�
 - 전환 효과는 없습니다. 하드 컷만 씁니다.
 - 배경음(audio.bgm)은 사용자가 경로를 준 경우에만 넣습니다. 그렇지 않으면 null입니다.
 - 스타일 메모가 있으면 그 기준을 따릅니다.
-- 확신이 없는 판단은 note에 한국어로 적습니다."""
+- 확신이 없는 판단은 note에 한국어로 적습니다.
+- 답은 글로 쓰지 말고 반드시 submit_edl 도구 호출로 제출합니다."""
 
 
 def _summary(analyses: list) -> list:
@@ -168,15 +170,45 @@ def _client():
     return anthropic.Anthropic(api_key=key)
 
 
+def _extract_json(text: str):
+    """도구를 쓰지 않고 글로 답한 경우, 글 안의 JSON을 찾아 쓴다."""
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        data = json.loads(text[start:end + 1])
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) and "clips" in data else None
+
+
 def _call(model: str, content: list) -> dict:
-    resp = _client().messages.create(
-        model=model, max_tokens=8000, system=SYSTEM,
-        tools=[{"name": "submit_edl", "description": "완성한 편집 지시서를 제출한다.", "input_schema": edl_mod.EDL_SCHEMA}],
-        tool_choice={"type": "tool", "name": "submit_edl"},
-        messages=[{"role": "user", "content": content}])
-    for block in resp.content:
-        if getattr(block, "type", "") == "tool_use":
-            return dict(block.input)
+    """submit_edl 도구 호출을 받아 온다.
+
+    최신 모델은 도구를 강제로 지정하는 옵션(tool_choice: tool/any)을 받지 않으므로
+    자동 선택으로 두고, 도구를 쓰지 않았으면 한 번 더 요청한다.
+    """
+    client = _client()
+    tools = [{"name": "submit_edl", "description": "완성한 편집 지시서를 제출한다. 답은 반드시 이 도구로 낸다.",
+              "input_schema": edl_mod.EDL_SCHEMA}]
+    messages = [{"role": "user", "content": content}]
+    for attempt in range(2):
+        resp = client.messages.create(model=model, max_tokens=16000, system=SYSTEM, tools=tools,
+                                      tool_choice={"type": "auto"}, messages=messages)
+        texts = []
+        for block in resp.content:
+            kind = getattr(block, "type", "")
+            if kind == "tool_use" and getattr(block, "name", "") == "submit_edl":
+                return dict(block.input)
+            if kind == "text":
+                texts.append(block.text)
+        found = _extract_json("\n".join(texts))
+        if found:
+            return found
+        if getattr(resp, "stop_reason", "") == "max_tokens":
+            raise RuntimeError("Claude의 답이 너무 길어 중간에 끊겼습니다. 촬영본을 나눠서 다시 시도해 주세요.")
+        messages = messages + [{"role": "assistant", "content": resp.content},
+                               {"role": "user", "content": "설명 없이 submit_edl 도구를 호출해서 편집 지시서를 제출하세요."}]
     raise RuntimeError("Claude가 편집 지시서를 돌려주지 않았습니다.")
 
 

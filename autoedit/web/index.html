@@ -66,7 +66,21 @@ pre{background:#f7f8fa;border-radius:8px;padding:10px;font-size:12px;overflow:au
 <main>
   <section>
     <div class="card">
-      <h2><span class="n">1</span>촬영본<span class="sp"></span>
+      <h2><span class="n">1</span>스타일 (레퍼런스)<span class="sp"></span><span id="memoState"></span></h2>
+      <label>레퍼런스 영상 링크 (한 줄에 하나)</label>
+      <textarea id="refUrls" rows="3" placeholder="https://www.youtube.com/watch?v=..."></textarea>
+      <div class="hint" id="refFiles"></div>
+      <div class="row" style="margin-top:8px"><span></span><button class="fit" onclick="learn()">받아서 스타일 분석</button></div>
+      <div class="hint">링크의 영상을 "레퍼런스" 폴더에 받고, 그 폴더의 영상 전체를 분석해 스타일 메모를 새로 씁니다. 링크 없이 누르면 폴더에 있는 영상만 분석합니다. 레퍼런스의 화면·음악·문구는 편집본에 쓰이지 않습니다.</div>
+      <div id="refWarn"></div>
+      <details><summary>스타일 메모 보기 / 고치기</summary>
+        <textarea id="memo" rows="14" style="margin-top:6px;font-size:12px" oninput="MEMO_DIRTY=true"></textarea>
+        <div class="row" style="margin-top:6px"><span class="hint">저장하면 이전 메모는 날짜를 붙여 보관됩니다.</span><button class="small fit" onclick="saveMemo()">메모 저장</button></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2><span class="n">2</span>촬영본<span class="sp"></span>
         <button class="small" onclick="document.getElementById('file').click()">파일 추가</button>
         <input type="file" id="file" multiple accept="video/*" style="display:none" onchange="upload(this.files)">
       </h2>
@@ -79,7 +93,7 @@ pre{background:#f7f8fa;border-radius:8px;padding:10px;font-size:12px;overflow:au
     </div>
 
     <div class="card">
-      <h2><span class="n">2</span>편집 계획</h2>
+      <h2><span class="n">3</span>편집 계획</h2>
       <label>영상 종류</label>
       <div class="seg">
         <input type="radio" name="mode" id="m-auto" value="auto" checked><label for="m-auto">자동</label>
@@ -103,7 +117,7 @@ pre{background:#f7f8fa;border-radius:8px;padding:10px;font-size:12px;overflow:au
 
   <section>
     <div class="card">
-      <h2><span class="n">3</span>결과<span class="sp"></span><span class="vers" id="vers"></span></h2>
+      <h2><span class="n">4</span>결과<span class="sp"></span><span class="vers" id="vers"></span></h2>
       <div id="empty" class="hint">아직 편집 지시서가 없습니다. 왼쪽에서 촬영본을 고르고 "편집 지시서 만들기"를 누르세요.</div>
       <div id="result" style="display:none">
         <div class="stage">
@@ -169,7 +183,7 @@ pre{background:#f7f8fa;border-radius:8px;padding:10px;font-size:12px;overflow:au
 </dialog>
 
 <script>
-let S=null, SEL=new Set(), V=null, E=null, DIRTY=false, BUSY=false;
+let S=null, SEL=new Set(), V=null, E=null, DIRTY=false, BUSY=false, MEMO_DIRTY=false;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt=t=>{t=Math.max(0,t);const m=Math.floor(t/60),s=t-m*60;return (m?m+'분 ':'')+s.toFixed(1)+'초'};
@@ -192,6 +206,9 @@ async function load(keep){
   if(!keep)$('planner').value=S.settings.has_key?'claude':'rule';
   $('preset').innerHTML=Object.entries(S.presets).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('');
   drawSources(); drawVersions();
+  $('memoState').innerHTML=S.memo?`<span class="chip ok">스타일 메모 있음 · 기본 자막 ${S.default_preset}형</span>`:'<span class="chip warn">스타일 메모 없음</span>';
+  $('refFiles').textContent=S.references.length?`레퍼런스 폴더: ${S.references.length}개 (${S.references.map(f=>f.length>28?f.slice(0,26)+'…':f).join(', ')})`:'레퍼런스 폴더가 비어 있습니다.';
+  if(!MEMO_DIRTY)$('memo').value=S.memo||'';
   if(V===null&&S.versions.length){await pick(S.versions[S.versions.length-1].version)}
 }
 function drawSources(){
@@ -237,6 +254,15 @@ async function upload(files){
   await guard(async()=>{const r=await fetch('/api/upload',{method:'POST',body:fd}); if(!r.ok)throw new Error('업로드 실패'); const d=await r.json(); d.saved.forEach(f=>SEL.add(f)); await load(true)});
   $('file').value='';
 }
+function learn(){
+  guard(async()=>runJob(await api('/api/reference/learn',{urls:$('refUrls').value}),async r=>{
+    MEMO_DIRTY=false; await load(true);
+    const bad=(r.failed||[]).map(f=>`<div class="warnbox">받지 못한 링크: ${esc(f.url)}<br>${esc(f.error)}</div>`).join('');
+    const note=`<div class="note">영상 ${r.files.length}개로 스타일 메모를 ${r.used_ai?'Claude가':'측정값만으로'} 새로 썼습니다.${r.used_ai?'':' API 키를 넣으면 자막·그래픽까지 분석합니다.'}</div>`;
+    $('refWarn').innerHTML=bad+note; if(!(r.failed||[]).length)$('refUrls').value='';
+  }));
+}
+function saveMemo(){guard(async()=>{await api('/api/memo',{text:$('memo').value});MEMO_DIRTY=false;await load(true)})}
 function analyze(){
   if(!SEL.size)return showErr('분석할 촬영본을 고르세요.');
   guard(async()=>runJob(await api('/api/analyze',{files:[...SEL]}),async()=>load(true)));
