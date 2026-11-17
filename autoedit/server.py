@@ -1,5 +1,6 @@
 """PC 안에서만 도는 웹 서버. 브라우저 화면과 편집 엔진을 잇는다."""
 import json
+import os
 import threading
 import traceback
 import uuid
@@ -13,6 +14,7 @@ from . import __version__, analyze, config, edl as edl_mod, ff, planner, referen
 app = FastAPI(title="auto-edit")
 WEB = Path(__file__).parent / "web"
 JOBS = {}
+SHUTDOWN_TOKEN = ""  # run.py가 실행할 때 채운다
 HEAVY = threading.Lock()  # 무거운 작업은 한 번에 하나만
 
 
@@ -93,6 +95,7 @@ def state():
         "sources": _sources(d) if ff.available() else [],
         "versions": edl_mod.versions(d["out"], _project()),
         "presets": {k: v["label"] for k, v in style.PRESETS.items()},
+        "busy": any(j["status"] in ("queued", "running") for j in JOBS.values()),
         "references": [p.name for p in reference.list_files()],
         "memo": config.style_memo(),
         "default_preset": config.default_preset(),
@@ -250,6 +253,20 @@ async def api_render(request: Request):
         return info
 
     return start_job("최종 내보내기" if quality == "final" else "미리보기", work)
+
+
+@app.post("/api/shutdown")
+def api_shutdown(request: Request):
+    """새로 켜진 auto-edit가 이 프로그램을 끄라고 요청할 때 쓴다. 같은 PC의 같은 사용자만 토큰을 안다."""
+    if not SHUTDOWN_TOKEN or request.headers.get("x-autoedit-token") != SHUTDOWN_TOKEN:
+        raise HTTPException(403, "권한이 없습니다.")
+
+    def stop():
+        ff.kill_children()
+        os._exit(0)
+
+    threading.Timer(0.3, stop).start()
+    return {"ok": True}
 
 
 @app.get("/api/jobs/{job_id}")

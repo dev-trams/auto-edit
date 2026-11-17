@@ -32,3 +32,17 @@ Name: "{autodesktop}\auto-edit"; Filename: "{app}\auto-edit.exe"; Tasks: desktop
 
 [Run]
 Filename: "{app}\auto-edit.exe"; Description: "Launch auto-edit"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /T /IM auto-edit.exe"; Flags: runhidden; RunOnceId: "StopAutoEdit"
+
+[Code]
+// Stop a running auto-edit before files are replaced (update) so the install does not fail on locked files.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM auto-edit.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(800);
+  Result := '';
+end;

@@ -58,13 +58,32 @@ def available() -> bool:
         return False
 
 
+_ACTIVE = set()  # 지금 돌고 있는 FFmpeg 프로세스
+
+
 def run(args, cwd=None, check=True) -> subprocess.CompletedProcess:
     cmd = [ffmpeg(), "-nostdin", "-hide_banner", "-y"] + [str(a) for a in args]
-    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    child = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True, encoding="utf-8", errors="replace")
+    _ACTIVE.add(child)
+    try:
+        out, err = child.communicate()
+    finally:
+        _ACTIVE.discard(child)
+    proc = subprocess.CompletedProcess(cmd, child.returncode, out, err)
     if check and proc.returncode != 0:
         tail = "\n".join(proc.stderr.strip().splitlines()[-8:])
         raise FFError(f"FFmpeg 실패:\n{tail}")
     return proc
+
+
+def kill_children():
+    """프로그램을 끌 때 돌고 있던 FFmpeg도 함께 끝낸다."""
+    for child in list(_ACTIVE):
+        try:
+            child.kill()
+        except OSError:
+            pass
 
 
 @functools.lru_cache(maxsize=None)

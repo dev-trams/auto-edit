@@ -67,6 +67,13 @@ python run.py
 3. **결과**: 미리보기(절반 크기, 빠름)를 보고, 구간·자막·스타일을 표에서 고치거나 말로 수정합니다.
    고칠 때마다 `v2`, `v3`… 새 버전으로 저장되고 이전 버전은 남습니다.
 4. **최종 내보내기**: `완성본/편집본_vN.mp4` 와 `.srt`, `.edl.json` 이 생깁니다.
+   저장 위치는 영상 아래에 표시되고, "완성본 폴더 열기"나 "파일 위치 열기"로 탐색기에서 바로 열 수 있습니다.
+
+## 한 번에 하나만 실행
+
+- 새로 켜면, 이미 켜져 있는 auto-edit를 찾아 끄고 그 자리(같은 주소)를 이어받습니다. 업데이트 뒤 예전 버전이 남아 있어도 정리됩니다.
+- 윈도우 설치 파일은 설치(업데이트)를 시작할 때 실행 중인 auto-edit를 먼저 끕니다.
+- 꺼지는 쪽에서 진행 중이던 분석·렌더는 중단됩니다. 완성본은 다 만들어진 뒤에만 저장되므로 반쯤 만들어진 파일은 남지 않습니다.
 
 ## 규칙
 
@@ -94,6 +101,7 @@ python run.py
 | `autoedit/server.py` | 로컬 웹 서버 |
 | `autoedit/web/index.html` | 화면 |
 | `autoedit/selftest.py` | 설치 확인 (`--selftest`) |
+| `autoedit/instance.py` | 이미 켜져 있는 프로그램 찾아 끄기 |
 | `packaging/`, `.github/workflows/release.yml` | 설치 파일 빌드 (PyInstaller, Inno Setup, GitHub Actions) |
 | `examples/편집본_v1.edl.json` | 2026-11-16 수작업 편집본과 같은 지시서 |
 

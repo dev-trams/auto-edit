@@ -52,13 +52,15 @@ td.num{color:var(--sub);width:24px;text-align:right}td.len{color:var(--sub);whit
 dialog{border:1px solid var(--line);border-radius:12px;padding:18px 20px;width:min(520px,92vw)}dialog::backdrop{background:rgba(20,25,40,.35)}
 .hint{font-size:12px;color:var(--sub);margin-top:4px}
 details summary{cursor:pointer;color:var(--sub);font-size:13px;margin-top:8px}
+
+.pathbox{font-size:12px;color:var(--sub);margin-top:6px;word-break:break-all}.pathbox b{color:var(--text);font-weight:500}.pathbox a{color:var(--accent);cursor:pointer;white-space:nowrap}
 pre{background:#f7f8fa;border-radius:8px;padding:10px;font-size:12px;overflow:auto;max-height:260px}
 </style>
 </head>
 <body>
 <header>
   <h1>auto-edit</h1>
-  <span class="ws" id="ws"></span>
+  <span class="ws" id="ws" title="작업 폴더 열기" style="cursor:pointer" onclick="openFolder('root')"></span>
   <span id="chips" class="row fit" style="gap:6px"></span>
   <button class="small" onclick="openSettings()">설정</button>
 </header>
@@ -69,7 +71,7 @@ pre{background:#f7f8fa;border-radius:8px;padding:10px;font-size:12px;overflow:au
       <h2><span class="n">1</span>스타일 (레퍼런스)<span class="sp"></span><span id="memoState"></span></h2>
       <label>레퍼런스 영상 링크 (한 줄에 하나)</label>
       <textarea id="refUrls" rows="3" placeholder="https://www.youtube.com/watch?v=..."></textarea>
-      <div class="hint" id="refFiles"></div>
+      <div class="row"><span class="hint" id="refFiles"></span><button class="small ghost fit" onclick="openFolder('ref')">폴더 열기</button></div>
       <div class="row" style="margin-top:8px"><span></span><button class="fit" onclick="learn()">받아서 스타일 분석</button></div>
       <div class="hint">링크의 영상을 "레퍼런스" 폴더에 받고, 그 폴더의 영상 전체를 분석해 스타일 메모를 새로 씁니다. 링크 없이 누르면 폴더에 있는 영상만 분석합니다. 레퍼런스의 화면·음악·문구는 편집본에 쓰이지 않습니다.</div>
       <div id="refWarn"></div>
@@ -81,6 +83,7 @@ pre{background:#f7f8fa;border-radius:8px;padding:10px;font-size:12px;overflow:au
 
     <div class="card">
       <h2><span class="n">2</span>촬영본<span class="sp"></span>
+        <button class="small" onclick="openFolder('src')" title="원본 영상 폴더를 엽니다">폴더 열기</button>
         <button class="small" onclick="document.getElementById('file').click()">파일 추가</button>
         <input type="file" id="file" multiple accept="video/*" style="display:none" onchange="upload(this.files)">
       </h2>
@@ -117,7 +120,8 @@ pre{background:#f7f8fa;border-radius:8px;padding:10px;font-size:12px;overflow:au
 
   <section>
     <div class="card">
-      <h2><span class="n">4</span>결과<span class="sp"></span><span class="vers" id="vers"></span></h2>
+      <h2><span class="n">4</span>결과<span class="sp"></span><span class="vers" id="vers"></span>
+        <button class="small" onclick="openFolder('out')" title="완성본이 저장되는 폴더를 엽니다">완성본 폴더 열기</button></h2>
       <div id="empty" class="hint">아직 편집 지시서가 없습니다. 왼쪽에서 촬영본을 고르고 "편집 지시서 만들기"를 누르세요.</div>
       <div id="result" style="display:none">
         <div class="stage">
@@ -128,6 +132,7 @@ pre{background:#f7f8fa;border-radius:8px;padding:10px;font-size:12px;overflow:au
               <button class="primary" onclick="renderVersion('final')" id="btnFinal">최종 내보내기</button>
             </div>
             <div class="hint" id="renderInfo"></div>
+            <div class="pathbox" id="outPath"></div>
           </div>
           <div>
             <div class="note" id="note"></div>
@@ -249,6 +254,17 @@ async function runJob(job,onDone){
 }
 async function guard(fn){try{showErr('');await fn()}catch(e){showErr(e.message)}}
 
+async function openFolder(target,file){
+  await guard(async()=>{await api('/api/open',file?{target,file}:{target})});
+}
+function drawOutPath(){
+  if(V===null){$('outPath').innerHTML='';return}
+  const ver=S.versions.find(x=>x.version===V)||{}, sep=S.paths.out.includes('\\')?'\\':'/';
+  const name=`${S.settings.project}_v${V}.mp4`;
+  $('outPath').innerHTML=ver.video
+    ?`저장 위치: <b>${esc(S.paths.out+sep+name)}</b> · <a onclick="openFolder('out','${esc(name)}')">파일 위치 열기</a>`
+    :`최종 내보내기를 하면 <b>${esc(S.paths.out)}</b> 에 저장됩니다.`;
+}
 async function upload(files){
   if(!files.length)return; const fd=new FormData(); for(const f of files)fd.append('files',f);
   await guard(async()=>{const r=await fetch('/api/upload',{method:'POST',body:fd}); if(!r.ok)throw new Error('업로드 실패'); const d=await r.json(); d.saved.forEach(f=>SEL.add(f)); await load(true)});
@@ -281,6 +297,7 @@ async function pick(v,warnings){
   const ver=S.versions.find(x=>x.version===v)||{};
   setVideo(ver.video?`/media/out/${encodeURIComponent(S.settings.project)}_v${v}.mp4`:`/media/preview/${encodeURIComponent(S.settings.project)}_v${v}.mp4`, ver.video?'최종본':'미리보기');
   $('btnFinal').disabled=!!ver.video; $('btnFinal').textContent=ver.video?'이미 내보냄':'최종 내보내기';
+  drawOutPath();
 }
 function setVideo(url,label){
   const v=document.createElement('video'); v.controls=true; v.playsInline=true; v.src=url+'?t='+Date.now();
@@ -294,6 +311,7 @@ function renderVersion(q){
   guard(async()=>runJob(await api('/api/render',{version:V,quality:q}),async r=>{
     await load(true); drawVersions(); setVideo(r.url,q==='final'?'최종본':'미리보기');
     if(q==='final'){$('btnFinal').disabled=true;$('btnFinal').textContent='이미 내보냄'}
+    drawOutPath();
     $('warn').innerHTML=(r.warnings||[]).map(w=>`<div class="warnbox">${esc(w)}</div>`).join('');
   }));
 }
