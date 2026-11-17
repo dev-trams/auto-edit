@@ -4,11 +4,15 @@
 (편집은 '원본 영상' 폴더만 읽는다).
 """
 import base64
+import contextlib
 import datetime
 import hashlib
 import json
+import os
 import re
 import statistics
+import sys
+import traceback
 from pathlib import Path
 
 from . import config, ff
@@ -20,6 +24,41 @@ FRAMES = 12
 def list_files() -> list:
     ref = config.dirs()["ref"]
     return sorted(p for p in ref.iterdir() if p.is_file() and p.suffix.lower() in config.VIDEO_EXT)
+
+
+def _usable(entry: str, must_list: bool) -> bool:
+    """윈도우가 접근을 막은 폴더(신뢰할 수 없는 연결 지점 등)를 걸러낸다."""
+    if not entry:
+        return not must_list
+    try:
+        os.stat(entry)
+    except (FileNotFoundError, NotADirectoryError):
+        return not must_list
+    except OSError:
+        return False
+    if must_list and os.path.isdir(entry):
+        try:
+            os.scandir(entry).close()
+        except OSError:
+            return False
+    return True
+
+
+@contextlib.contextmanager
+def _safe_search_paths():
+    """yt-dlp가 도는 동안만 PATH와 sys.path에서 접근할 수 없는 폴더를 뺀다.
+
+    PATH에 접근이 막힌 폴더가 하나라도 있으면 yt-dlp가 보조 프로그램을 찾다가
+    오류(WinError 448 등)로 멈추는 경우가 있다. FFmpeg 위치는 따로 알려 주므로 PATH가 줄어도 된다.
+    """
+    old_path, old_sys = os.environ.get("PATH", ""), list(sys.path)
+    os.environ["PATH"] = os.pathsep.join(d for d in old_path.split(os.pathsep) if _usable(d, True))
+    sys.path[:] = [d for d in old_sys if _usable(d, False)]
+    try:
+        yield
+    finally:
+        os.environ["PATH"] = old_path
+        sys.path[:] = old_sys
 
 
 def download(urls: list, progress=None) -> dict:
@@ -47,7 +86,7 @@ def download(urls: list, progress=None) -> dict:
                 "windowsfilenames": True, "retries": 2,
             }
             try:
-                with yt_dlp.YoutubeDL(opts) as ydl:
+                with _safe_search_paths(), yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     name = Path(ydl.prepare_filename(info))
                     final = next((c for c in (name, name.with_suffix(".mp4"), name.with_suffix(".mkv"), name.with_suffix(".webm"))
@@ -57,8 +96,13 @@ def download(urls: list, progress=None) -> dict:
                     break
             except Exception as exc:  # 다음 형식으로 다시 시도한다
                 error = re.sub(r"\x1b\[[0-9;]*m", "", str(exc)).replace("ERROR: ", "")
+                if not isinstance(exc, yt_dlp.utils.YoutubeDLError):
+                    # yt-dlp 밖에서 난 오류는 어디서 났는지 함께 남긴다 (원인 추적용)
+                    tb = traceback.extract_tb(exc.__traceback__)
+                    where = " < ".join(f"{Path(f.filename).name}:{f.lineno} {f.name}" for f in reversed(tb[-3:]))
+                    error = f"{type(exc).__name__}: {error}  [위치: {where}]"
         if error:
-            failed.append({"url": url, "error": error[:300]})
+            failed.append({"url": url, "error": error[:500]})
     return {"saved": saved, "failed": failed, "version": getattr(yt_dlp.version, "__version__", "?")}
 
 
