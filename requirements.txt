@@ -1,0 +1,7 @@
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+anthropic>=0.40
+# 받아쓰기 (없어도 실행은 되지만 자막 자동 생성이 빠집니다)
+sherpa-onnx>=1.10
+numpy

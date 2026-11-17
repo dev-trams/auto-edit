@@ -1,0 +1,30 @@
+{
+  "name": "편집본",
+  "planner": "manual",
+  "note": "2026-11-16에 수작업으로 만든 편집본_v1.mp4와 같은 구성입니다.",
+  "output": {"width": 1080, "height": 1920, "fps": 30},
+  "clips": [
+    {"src": "copy_DF8B0633-B3C6-4F93-ACD4-A27BACAAC314.mov", "in": 1.0, "out": 4.2, "crop": {"x": 0.03, "y": 0.085, "w": 0.915, "h": 0.915}, "reason": "가방에 담는 장면 (우상단 로고를 잘라냄)"},
+    {"src": "IMG_0941.mov", "in": 0.6, "out": 3.6, "reason": "상자에 담는 동작"},
+    {"src": "IMG_0959.mov", "in": 0.6, "out": 2.8, "reason": "노트북 화면"},
+    {"src": "IMG_0959.mov", "in": 3.5, "out": 5.7, "reason": "돌아보며 엄지"},
+    {"src": "IMG_0954.mov", "in": 2.5, "out": 5.5, "reason": "탁구 치는 장면"},
+    {"src": "IMG_0953.mov", "in": 0.5, "out": 3.3, "reason": "키보드 치는 장면"},
+    {"src": "IMG_0962.mov", "in": 0.5, "out": 3.5, "reason": "자리에서 컵라면"},
+    {"src": "IMG_0960.mov", "in": 0.3, "out": 2.0, "reason": "식당에서 먹는 장면"},
+    {"src": "IMG_0960.mov", "in": 3.1, "out": 5.3, "reason": "엄지"},
+    {"src": "copy_D0BC6D47-DD55-4125-9150-40198BF0F25E.mov", "in": 14.5, "out": 17.1, "mute": true, "reason": "학교 로고"}
+  ],
+  "captions": [
+    {"start": 0.15, "end": 3.1, "text": "담지 말고"},
+    {"start": 3.35, "end": 6.1, "text": "담으세요", "emphasis": true},
+    {"start": 6.35, "end": 8.3, "text": "키지 말고!"},
+    {"start": 8.55, "end": 10.5, "text": "켜세요!", "emphasis": true},
+    {"start": 10.75, "end": 13.5, "text": "치지 말고"},
+    {"start": 13.75, "end": 16.3, "text": "치세요!", "emphasis": true},
+    {"start": 16.55, "end": 19.3, "text": "먹지 말고"},
+    {"start": 19.55, "end": 23.2, "text": "먹으세요!", "emphasis": true}
+  ],
+  "style": {"preset": "C", "font_scale": 1.0, "margin_bottom_pct": 11},
+  "audio": {"target_lufs": -23, "bgm": null, "bgm_offset_db": -18}
+}

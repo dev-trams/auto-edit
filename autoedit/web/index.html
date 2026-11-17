@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>auto-edit</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--line:#e2e5ea;--text:#1c2330;--sub:#6b7484;--accent:#3d5afe;--accent-soft:#e8ecff;--ok:#1a8f5a;--warn:#b7791f;--bad:#c53030;--radius:10px}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 "Pretendard","Malgun Gothic","Apple SD Gothic Neo","Noto Sans CJK KR",system-ui,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+header h1{font-size:17px;margin:0;letter-spacing:-.2px}
+header .ws{color:var(--sub);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.chip{font-size:12px;padding:3px 9px;border-radius:99px;border:1px solid var(--line);white-space:nowrap}
+.chip.ok{color:var(--ok);border-color:#bfe5d2;background:#f0faf5}.chip.warn{color:var(--warn);border-color:#f0dcb4;background:#fdf8ec}.chip.bad{color:var(--bad);border-color:#f3c2c2;background:#fdf1f1}
+main{display:grid;grid-template-columns:minmax(340px,440px) 1fr;gap:16px;padding:16px 20px;align-items:start}
+@media(max-width:980px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px}
+.card h2{font-size:14px;margin:0 0 10px;display:flex;align-items:center;gap:8px}
+.card h2 .n{display:inline-flex;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;align-items:center;justify-content:center}
+.card h2 .sp{flex:1}
+button{font:inherit;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;color:var(--text)}
+button:hover{border-color:#c5cad3}button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary:hover{filter:brightness(1.08)}button:disabled{opacity:.5;cursor:not-allowed}button.small{padding:3px 8px;font-size:12px}
+button.ghost{border-color:transparent;color:var(--sub)}
+input,select,textarea{font:inherit;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:#fff;color:var(--text);width:100%}
+textarea{resize:vertical}label{font-size:12px;color:var(--sub);display:block;margin:8px 0 3px}
+.row{display:flex;gap:8px;align-items:center}.row>*{flex:1}.row>.fit{flex:0 0 auto}
+.src{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px}
+.src.sel{border-color:var(--accent);background:#fafbff}
+.src .top{display:flex;gap:8px;align-items:center}.src .top input{width:auto}
+.src .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.src .meta{font-size:12px;color:var(--sub);margin-top:2px}
+.thumbs{display:flex;gap:3px;overflow-x:auto;margin-top:6px}.thumbs img{height:64px;border-radius:4px;flex:0 0 auto}
+.speech{font-size:12px;color:#3b4252;margin-top:6px;background:#f7f8fa;border-radius:6px;padding:6px 8px;max-height:84px;overflow:auto}
+.speech b{color:var(--sub);font-weight:500;margin-right:6px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.seg label{margin:0;padding:5px 11px;cursor:pointer;color:var(--text);font-size:13px}
+.seg input{display:none}.seg input:checked+label{background:var(--accent);color:#fff}
+.vers{display:flex;gap:6px;flex-wrap:wrap}.vers button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+.stage{display:grid;grid-template-columns:minmax(220px,320px) 1fr;gap:16px}
+@media(max-width:1200px){.stage{grid-template-columns:1fr}}
+.player{background:#11141a;border-radius:8px;display:flex;align-items:center;justify-content:center;min-height:300px;max-height:68vh;overflow:hidden;color:#8b93a3;font-size:13px;text-align:center;padding:0}
+.player video{max-width:100%;max-height:68vh;display:block}
+.note{font-size:13px;background:#f7f8fa;border-radius:8px;padding:8px 10px;margin:8px 0;white-space:pre-wrap}
+.warnbox{font-size:13px;background:#fdf8ec;border:1px solid #f0dcb4;color:#7a5410;border-radius:8px;padding:8px 10px;margin:8px 0}
+.errbox{font-size:13px;background:#fdf1f1;border:1px solid #f3c2c2;color:#8f1d1d;border-radius:8px;padding:8px 10px;margin:8px 0;white-space:pre-wrap}
+table{width:100%;border-collapse:collapse;font-size:13px}th{font-weight:500;color:var(--sub);text-align:left;padding:4px 4px;font-size:12px;white-space:nowrap}
+td{padding:2px 3px;vertical-align:middle}td input{padding:4px 6px}td input[type=number]{width:74px}td input[type=checkbox]{width:auto}
+td.num{color:var(--sub);width:24px;text-align:right}td.len{color:var(--sub);white-space:nowrap;width:52px}
+.bar{height:6px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+#job{position:sticky;bottom:12px;display:none}#job .card{box-shadow:0 6px 24px rgba(20,30,60,.14);margin:0}
+dialog{border:1px solid var(--line);border-radius:12px;padding:18px 20px;width:min(520px,92vw)}dialog::backdrop{background:rgba(20,25,40,.35)}
+.hint{font-size:12px;color:var(--sub);margin-top:4px}
+details summary{cursor:pointer;color:var(--sub);font-size:13px;margin-top:8px}
+pre{background:#f7f8fa;border-radius:8px;padding:10px;font-size:12px;overflow:auto;max-height:260px}
+</style>
+</head>
+<body>
+<header>
+  <h1>auto-edit</h1>
+  <span class="ws" id="ws"></span>
+  <span id="chips" class="row fit" style="gap:6px"></span>
+  <button class="small" onclick="openSettings()">설정</button>
+</header>
+
+<main>
+  <section>
+    <div class="card">
+      <h2><span class="n">1</span>촬영본<span class="sp"></span>
+        <button class="small" onclick="document.getElementById('file').click()">파일 추가</button>
+        <input type="file" id="file" multiple accept="video/*" style="display:none" onchange="upload(this.files)">
+      </h2>
+      <div id="sources"></div>
+      <div class="row" style="margin-top:8px">
+        <button class="ghost small fit" onclick="selectAll()">전체 선택/해제</button><span></span>
+        <button class="fit" id="btnAnalyze" onclick="analyze()">선택한 촬영본 분석</button>
+      </div>
+      <div class="hint">분석은 무음 구간·음량을 재고 말소리를 받아 적습니다. 결과는 저장되어 다음부터는 바로 뜹니다.</div>
+    </div>
+
+    <div class="card">
+      <h2><span class="n">2</span>편집 계획</h2>
+      <label>영상 종류</label>
+      <div class="seg">
+        <input type="radio" name="mode" id="m-auto" value="auto" checked><label for="m-auto">자동</label>
+        <input type="radio" name="mode" id="m-talk" value="talk"><label for="m-talk">말하는 영상</label>
+        <input type="radio" name="mode" id="m-template" value="template"><label for="m-template">자막 직접 입력</label>
+      </div>
+      <div class="hint">말하는 영상: 무음을 자르고 받아쓰기로 자막을 답니다. 자막 직접 입력: 클립 순서대로 아래 문구를 붙입니다.</div>
+      <label>자막 문구 (한 줄에 하나, 클립 순서대로. *로 시작하면 강조색)</label>
+      <textarea id="captions" rows="4" placeholder="담지 말고&#10;*담으세요"></textarea>
+      <label>요청 사항 (Claude에게 전달)</label>
+      <textarea id="instruction" rows="2" placeholder="예: 탁구 장면은 랠리가 이어지는 부분으로 3초만"></textarea>
+      <div class="row" style="margin-top:10px">
+        <select id="planner" class="fit" style="width:auto">
+          <option value="rule">규칙 기반 (키 없이 동작)</option>
+          <option value="claude">Claude API</option>
+        </select><span></span>
+        <button class="primary fit" onclick="plan()">편집 지시서 만들기</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="card">
+      <h2><span class="n">3</span>결과<span class="sp"></span><span class="vers" id="vers"></span></h2>
+      <div id="empty" class="hint">아직 편집 지시서가 없습니다. 왼쪽에서 촬영본을 고르고 "편집 지시서 만들기"를 누르세요.</div>
+      <div id="result" style="display:none">
+        <div class="stage">
+          <div>
+            <div class="player" id="player">미리보기가 아직 없습니다</div>
+            <div class="row" style="margin-top:8px">
+              <button onclick="renderVersion('preview')">미리보기 만들기</button>
+              <button class="primary" onclick="renderVersion('final')" id="btnFinal">최종 내보내기</button>
+            </div>
+            <div class="hint" id="renderInfo"></div>
+          </div>
+          <div>
+            <div class="note" id="note"></div>
+            <div id="warn"></div>
+            <label>말로 수정하기</label>
+            <div class="row">
+              <input id="revise" placeholder="예: 자막 더 크게 / 배경음 조금 작게 / B형으로" onkeydown="if(event.key==='Enter')revise()">
+              <button class="fit" onclick="revise()">수정</button>
+            </div>
+            <div class="hint">수정하면 새 버전(v2, v3…)으로 저장됩니다. 이전 버전은 그대로 남습니다.</div>
+
+            <label style="margin-top:14px">사용 구간 <span id="total"></span></label>
+            <table id="clips"></table>
+            <button class="ghost small" onclick="addClip()">+ 구간 추가</button>
+
+            <label style="margin-top:10px">자막</label>
+            <table id="caps"></table>
+            <button class="ghost small" onclick="addCap()">+ 자막 추가</button>
+
+            <div class="row" style="margin-top:10px">
+              <div><label>자막 스타일</label><select id="preset" onchange="E.style.preset=this.value;E.style.margin_bottom_pct=null;dirty()"></select></div>
+              <div><label>글자 크기 배율</label><input type="number" step="0.05" id="fscale" onchange="E.style.font_scale=+this.value;dirty()"></div>
+              <div><label>아래 여백 %</label><input type="number" step="1" id="margin" placeholder="기본" onchange="E.style.margin_bottom_pct=this.value===''?null:+this.value;dirty()"></div>
+            </div>
+            <div class="row">
+              <div><label>목표 음량 (LUFS)</label><input type="number" step="1" id="lufs" onchange="E.audio.target_lufs=+this.value;dirty()"></div>
+              <div style="flex:2"><label>배경음 파일 경로</label><input id="bgm" placeholder="없으면 비워 두세요" onchange="E.audio.bgm=this.value.trim()||null;dirty()"></div>
+              <div><label>배경음 크기 (dB)</label><input type="number" step="1" id="bgmoff" onchange="E.audio.bgm_offset_db=+this.value;dirty()"></div>
+            </div>
+            <div class="row" style="margin-top:12px"><span></span>
+              <button class="fit" id="btnSave" onclick="saveEdl()" disabled>고친 내용을 새 버전으로 저장</button></div>
+            <details><summary>지시서 원문 (JSON)</summary><pre id="json"></pre></details>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="job"><div class="card"><div class="row"><b id="jobLabel" class="fit"></b><span id="jobMsg" style="color:var(--sub)"></span></div><div class="bar"><i id="jobBar"></i></div></div></div>
+    <div id="err"></div>
+  </section>
+</main>
+
+<dialog id="settings">
+  <h2 style="margin:0 0 6px;font-size:16px">설정</h2>
+  <label>작업 폴더 (원본 영상 / 레퍼런스 / 완성본이 들어 있는 폴더)</label><input id="s-ws">
+  <label>프로젝트 이름 (완성본 파일 이름 앞부분)</label><input id="s-project">
+  <label>Claude API 키 <span id="s-keystate"></span></label><input id="s-key" type="password" placeholder="바꿀 때만 입력 (이 PC에만 저장됩니다)">
+  <div class="row">
+    <div><label>계획용 모델</label><input id="s-mplan"></div>
+    <div><label>수정용 모델</label><input id="s-mrev"></div>
+    <div><label>받아쓰기 모델</label><select id="s-whisper"><option>tiny</option><option>base</option><option>small</option><option>medium</option></select></div>
+  </div>
+  <div class="row" style="margin-top:16px"><span></span><button class="fit" onclick="document.getElementById('settings').close()">닫기</button><button class="primary fit" onclick="saveSettings()">저장</button></div>
+</dialog>
+
+<script>
+let S=null, SEL=new Set(), V=null, E=null, DIRTY=false, BUSY=false;
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=t=>{t=Math.max(0,t);const m=Math.floor(t/60),s=t-m*60;return (m?m+'분 ':'')+s.toFixed(1)+'초'};
+async function api(path,body){
+  const r=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok){let d='';try{d=(await r.json()).detail}catch(e){}throw new Error(d||('요청 실패 ('+r.status+')'))}
+  return r.json();
+}
+function showErr(msg){$('err').innerHTML=msg?`<div class="errbox">${esc(msg)}</div>`:''}
+
+async function load(keep){
+  S=await api('/api/state');
+  $('ws').textContent=S.settings.workspace+'  ·  '+S.settings.project;
+  const e=S.env, chips=[];
+  chips.push(e.ffmpeg?['ok','FFmpeg 준비됨']:['bad','FFmpeg 없음']);
+  chips.push(!e.transcribe_installed?['warn','받아쓰기 엔진 없음']:e.models_ready?['ok','받아쓰기 준비됨']:['warn','받아쓰기 모델은 첫 분석 때 내려받음']);
+  chips.push(S.settings.has_key?['ok','API 키 있음']:['warn','API 키 없음 · 규칙 기반만']);
+  if(e.ffmpeg&&!e.hdr_convert)chips.push(['warn','HDR 변환 불가']);
+  $('chips').innerHTML=chips.map(c=>`<span class="chip ${c[0]}">${c[1]}</span>`).join('');
+  if(!keep)$('planner').value=S.settings.has_key?'claude':'rule';
+  $('preset').innerHTML=Object.entries(S.presets).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('');
+  drawSources(); drawVersions();
+  if(V===null&&S.versions.length){await pick(S.versions[S.versions.length-1].version)}
+}
+function drawSources(){
+  if(!S.sources.length){$('sources').innerHTML='<div class="hint">"원본 영상" 폴더가 비어 있습니다. 파일을 넣거나 "파일 추가"를 누르세요.</div>';return}
+  $('sources').innerHTML=S.sources.map(s=>{
+    const a=s.analysis, on=SEL.has(s.file);
+    let meta=(s.size/1048576).toFixed(1)+'MB', extra='';
+    if(a){
+      meta=`${fmt(a.duration)} · ${a.width}×${a.height}${a.hdr?' · HDR':''} · 무음 ${(a.silence_ratio*100).toFixed(0)}%`+(a.transcribed?` · 말소리 ${(a.speech_ratio*100).toFixed(0)}%`:'');
+      extra=`<div class="thumbs">${(a.thumbs||[]).map(t=>`<img loading="lazy" title="${t.t}초" src="/media/thumb/${t.file}">`).join('')}</div>`;
+      if(a.speech&&a.speech.length)extra+=`<div class="speech">${a.speech.map(p=>`<div><b>${p.start.toFixed(1)}</b>${esc(p.text)}</div>`).join('')}</div>`;
+      else if(a.transcribe_error)extra+=`<div class="hint">${esc(a.transcribe_error)}</div>`;
+      else if(a.transcribed)extra+=`<div class="hint">말소리가 잡히지 않았습니다.</div>`;
+    }else meta+=' · 아직 분석 안 함';
+    return `<div class="src ${on?'sel':''}"><div class="top"><input type="checkbox" ${on?'checked':''} onchange="toggle('${esc(s.file)}',this.checked)"><span class="name" title="${esc(s.file)}">${esc(s.file)}</span></div><div class="meta">${meta}</div>${extra}</div>`;
+  }).join('');
+}
+function toggle(f,on){on?SEL.add(f):SEL.delete(f);drawSources()}
+function selectAll(){if(SEL.size===S.sources.length)SEL.clear();else S.sources.forEach(s=>SEL.add(s.file));drawSources()}
+function drawVersions(){
+  $('vers').innerHTML=S.versions.filter(v=>v.edl).map(v=>`<button class="small ${v.version===V?'on':''}" onclick="pick(${v.version})">v${v.version}${v.video?' ✓':''}</button>`).join('');
+}
+
+async function runJob(job,onDone){
+  if(BUSY)return; BUSY=true; showErr('');
+  $('job').style.display='block'; $('jobLabel').textContent=job.label;
+  try{
+    while(true){
+      $('jobMsg').textContent=job.message; $('jobBar').style.width=(job.progress*100)+'%';
+      if(job.status==='done')break;
+      if(job.status==='error')throw new Error(job.error);
+      await new Promise(r=>setTimeout(r,600));
+      job=await api('/api/jobs/'+job.id);
+    }
+    BUSY=false; $('job').style.display='none';
+    await onDone(job.result);
+  }catch(e){BUSY=false; $('job').style.display='none'; showErr(e.message)}
+}
+async function guard(fn){try{showErr('');await fn()}catch(e){showErr(e.message)}}
+
+async function upload(files){
+  if(!files.length)return; const fd=new FormData(); for(const f of files)fd.append('files',f);
+  await guard(async()=>{const r=await fetch('/api/upload',{method:'POST',body:fd}); if(!r.ok)throw new Error('업로드 실패'); const d=await r.json(); d.saved.forEach(f=>SEL.add(f)); await load(true)});
+  $('file').value='';
+}
+function analyze(){
+  if(!SEL.size)return showErr('분석할 촬영본을 고르세요.');
+  guard(async()=>runJob(await api('/api/analyze',{files:[...SEL]}),async()=>load(true)));
+}
+function plan(){
+  if(!SEL.size)return showErr('촬영본을 하나 이상 고르세요.');
+  const files=S.sources.map(s=>s.file).filter(f=>SEL.has(f));
+  const body={files,mode:document.querySelector('input[name=mode]:checked').value,captions:$('captions').value,instruction:$('instruction').value,planner:$('planner').value};
+  guard(async()=>runJob(await api('/api/plan',body),afterNewVersion));
+}
+async function afterNewVersion(res){
+  await load(true); await pick(res.edl.version,res.warnings); renderVersion('preview');
+}
+async function pick(v,warnings){
+  V=v; E=await api('/api/edl/'+v); DIRTY=false; drawVersions(); drawEdl(warnings||[]);
+  const ver=S.versions.find(x=>x.version===v)||{};
+  setVideo(ver.video?`/media/out/${encodeURIComponent(S.settings.project)}_v${v}.mp4`:`/media/preview/${encodeURIComponent(S.settings.project)}_v${v}.mp4`, ver.video?'최종본':'미리보기');
+  $('btnFinal').disabled=!!ver.video; $('btnFinal').textContent=ver.video?'이미 내보냄':'최종 내보내기';
+}
+function setVideo(url,label){
+  const v=document.createElement('video'); v.controls=true; v.playsInline=true; v.src=url+'?t='+Date.now();
+  v.onerror=()=>{$('player').textContent='미리보기가 아직 없습니다';$('renderInfo').textContent=''};
+  v.onloadedmetadata=()=>{$('renderInfo').textContent=`${label} · ${fmt(v.duration)} · ${v.videoWidth}×${v.videoHeight}`};
+  $('player').innerHTML=''; $('player').appendChild(v);
+}
+function renderVersion(q){
+  if(V===null)return;
+  if(DIRTY)return showErr('고친 내용이 저장되지 않았습니다. 먼저 "새 버전으로 저장"을 누르세요.');
+  guard(async()=>runJob(await api('/api/render',{version:V,quality:q}),async r=>{
+    await load(true); drawVersions(); setVideo(r.url,q==='final'?'최종본':'미리보기');
+    if(q==='final'){$('btnFinal').disabled=true;$('btnFinal').textContent='이미 내보냄'}
+    $('warn').innerHTML=(r.warnings||[]).map(w=>`<div class="warnbox">${esc(w)}</div>`).join('');
+  }));
+}
+function revise(){
+  const msg=$('revise').value.trim(); if(!msg||V===null)return;
+  guard(async()=>runJob(await api('/api/revise',{version:V,message:msg}),async r=>{$('revise').value='';await afterNewVersion(r)}));
+}
+
+function dirty(){DIRTY=true;$('btnSave').disabled=false;drawTotals();$('json').textContent=JSON.stringify(E,null,2)}
+function drawTotals(){const t=E.clips.reduce((a,c)=>a+Math.max(0,c.out-c.in),0);$('total').textContent='· 완성본 길이 '+fmt(t)}
+function drawEdl(warnings){
+  $('empty').style.display='none'; $('result').style.display='block';
+  const who={rule:'규칙 기반',claude:'Claude',manual:'직접 수정'}[E.planner]||E.planner;
+  $('note').textContent=`v${E.version} · ${who}${E.based_on?` · v${E.based_on}에서 수정`:''}\n${E.note||''}`;
+  $('warn').innerHTML=warnings.map(w=>`<div class="warnbox">${esc(w)}</div>`).join('');
+  const files=S.sources.map(s=>s.file);
+  $('clips').innerHTML='<tr><th></th><th>원본</th><th>시작</th><th>끝</th><th>길이</th><th>음소거</th><th>이유</th><th></th></tr>'+E.clips.map((c,i)=>`<tr>
+    <td class="num">${i+1}</td>
+    <td><select onchange="E.clips[${i}].src=this.value;dirty()">${[...new Set([c.src,...files])].map(f=>`<option ${f===c.src?'selected':''}>${esc(f)}</option>`).join('')}</select></td>
+    <td><input type="number" step="0.1" min="0" value="${c.in}" onchange="E.clips[${i}].in=+this.value;dirty();drawEdl([])"></td>
+    <td><input type="number" step="0.1" min="0" value="${c.out}" onchange="E.clips[${i}].out=+this.value;dirty();drawEdl([])"></td>
+    <td class="len">${(c.out-c.in).toFixed(1)}초</td>
+    <td style="text-align:center"><input type="checkbox" ${c.mute?'checked':''} onchange="E.clips[${i}].mute=this.checked;dirty()"></td>
+    <td><input value="${esc(c.reason||'')}" onchange="E.clips[${i}].reason=this.value;dirty()"></td>
+    <td><button class="ghost small" title="위로" onclick="moveClip(${i},-1)">↑</button><button class="ghost small" title="삭제" onclick="E.clips.splice(${i},1);dirty();drawEdl([])">✕</button></td></tr>`).join('');
+  $('caps').innerHTML='<tr><th>시작</th><th>끝</th><th>문구</th><th>강조</th><th></th></tr>'+E.captions.map((c,i)=>`<tr>
+    <td><input type="number" step="0.1" min="0" value="${c.start}" onchange="E.captions[${i}].start=+this.value;dirty()"></td>
+    <td><input type="number" step="0.1" min="0" value="${c.end}" onchange="E.captions[${i}].end=+this.value;dirty()"></td>
+    <td style="width:100%"><input value="${esc(c.text)}" onchange="E.captions[${i}].text=this.value;dirty()"></td>
+    <td style="text-align:center"><input type="checkbox" ${c.emphasis?'checked':''} onchange="E.captions[${i}].emphasis=this.checked;dirty()"></td>
+    <td><button class="ghost small" onclick="E.captions.splice(${i},1);dirty();drawEdl([])">✕</button></td></tr>`).join('');
+  $('preset').value=E.style.preset; $('fscale').value=E.style.font_scale; $('margin').value=E.style.margin_bottom_pct??'';
+  $('lufs').value=E.audio.target_lufs; $('bgm').value=E.audio.bgm||''; $('bgmoff').value=E.audio.bgm_offset_db;
+  $('btnSave').disabled=!DIRTY; drawTotals(); $('json').textContent=JSON.stringify(E,null,2);
+}
+function moveClip(i,d){const j=i+d;if(j<0||j>=E.clips.length)return;[E.clips[i],E.clips[j]]=[E.clips[j],E.clips[i]];dirty();drawEdl([])}
+function addClip(){const f=(S.sources[0]||{}).file;if(!f)return;E.clips.push({src:f,in:0,out:3,mute:false,reason:''});dirty();drawEdl([])}
+function addCap(){const t=E.captions.length?E.captions[E.captions.length-1].end+0.2:0;E.captions.push({start:+t.toFixed(2),end:+(t+2).toFixed(2),text:'',emphasis:false});dirty();drawEdl([])}
+function saveEdl(){guard(async()=>{const r=await api('/api/edl',{edl:E});await afterNewVersion(r)})}
+
+function openSettings(){
+  $('s-ws').value=S.settings.workspace;$('s-project').value=S.settings.project;$('s-key').value='';
+  $('s-keystate').textContent=S.settings.has_key?'(저장됨)':'(없음)';
+  $('s-mplan').value=S.settings.model_plan;$('s-mrev').value=S.settings.model_revise;$('s-whisper').value=S.settings.whisper_model;
+  $('settings').showModal();
+}
+function saveSettings(){
+  guard(async()=>{await api('/api/settings',{workspace:$('s-ws').value.trim(),project:$('s-project').value.trim()||'편집본',api_key:$('s-key').value,model_plan:$('s-mplan').value.trim(),model_revise:$('s-mrev').value.trim(),whisper_model:$('s-whisper').value});
+    $('settings').close();V=null;E=null;SEL.clear();$('result').style.display='none';$('empty').style.display='block';await load()});
+}
+load().catch(e=>showErr(e.message));
+</script>
+</body>
+</html>
