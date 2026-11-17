@@ -142,6 +142,11 @@ async def api_reference_learn(request: Request):
 
     def work(update):
         got = reference.download(urls, update) if urls else {"saved": [], "failed": []}
+        if got["failed"] and not reference.list_files():
+            # 받은 영상이 하나도 없으면 왜 못 받았는지를 그대로 보여 준다
+            reasons = "\n".join(f"- {f['url']}\n  {f['error']}" for f in got["failed"])
+            raise ValueError(f"링크의 영상을 받지 못했습니다 (yt-dlp {got.get('version', '?')}).\n{reasons}\n\n"
+                             "영상 파일을 '레퍼런스' 폴더에 직접 넣고 다시 눌러도 됩니다.")
         result = reference.learn(update)
         result.update(downloaded=got["saved"], failed=got["failed"])
         return result

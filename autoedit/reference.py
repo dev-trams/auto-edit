@@ -31,24 +31,35 @@ def download(urls: list, progress=None) -> dict:
         raise ValueError("yt-dlp가 설치되지 않았습니다. 영상 파일을 '레퍼런스' 폴더에 직접 넣어 주세요.")
     ref = config.dirs()["ref"]
     saved, failed = [], []
+    # 스타일 분석에는 낮은 화질이면 충분하다. 영상·소리가 한 파일로 된 형식을 먼저 시도하고
+    # (합치기와 추가 프로그램이 필요 없다), 안 되면 따로 받아 합치는 형식으로 넘어간다.
+    formats = ["b[height<=480]/18", "b[height<=720]/b", "bv*[height<=720]+ba/bv*+ba"]
     for i, url in enumerate(urls, 1):
         say(f"레퍼런스 내려받는 중 {i}/{len(urls)}", 0.3 * (i - 1) / len(urls))
-        opts = {
-            "format": "bv*[height<=720]+ba/b[height<=720]/b",
-            "merge_output_format": "mp4",
-            "outtmpl": str(ref / "%(title).80s [%(id)s].%(ext)s"),
-            "noplaylist": True, "quiet": True, "no_warnings": True, "noprogress": True,
-            "ffmpeg_location": str(Path(ff.ffmpeg()).parent),
-            "windowsfilenames": True,
-        }
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                saved.append(Path(ydl.prepare_filename(info)).with_suffix(".mp4").name)
-        except Exception as exc:  # 한 링크가 실패해도 나머지는 계속한다
-            msg = re.sub(r"\x1b\[[0-9;]*m", "", str(exc)).replace("ERROR: ", "")
-            failed.append({"url": url, "error": msg[:200]})
-    return {"saved": saved, "failed": failed}
+        error = ""
+        for fmt in formats:
+            opts = {
+                "format": fmt,
+                "merge_output_format": "mp4",
+                "outtmpl": str(ref / "%(title).80s [%(id)s].%(ext)s"),
+                "noplaylist": True, "quiet": True, "no_warnings": True, "noprogress": True,
+                "ffmpeg_location": str(Path(ff.ffmpeg()).parent),
+                "windowsfilenames": True, "retries": 2,
+            }
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    name = Path(ydl.prepare_filename(info))
+                    final = next((c for c in (name, name.with_suffix(".mp4"), name.with_suffix(".mkv"), name.with_suffix(".webm"))
+                                  if c.is_file()), name)
+                    saved.append(final.name)
+                    error = ""
+                    break
+            except Exception as exc:  # 다음 형식으로 다시 시도한다
+                error = re.sub(r"\x1b\[[0-9;]*m", "", str(exc)).replace("ERROR: ", "")
+        if error:
+            failed.append({"url": url, "error": error[:300]})
+    return {"saved": saved, "failed": failed, "version": getattr(yt_dlp.version, "__version__", "?")}
 
 
 def _cuts(path: Path, limit: float) -> list:
