@@ -5,7 +5,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import config, edl as edl_mod, ff, style
+from . import config, edl as edl_mod, ff, media, style
 
 TONEMAP = ("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,"
            "zscale=t=bt709:m=bt709:r=tv")
@@ -20,12 +20,58 @@ def _even(n: float) -> int:
     return max(16, n - n % 2)
 
 
+ZOOM = 0.08  # 사진을 보여 주는 동안 확대되는 정도
+
+
+def _still_fit(clip: dict, info: dict, w: int, h: int) -> str:
+    """사진 맞춤 방식. 정하지 않았으면 화면과 사진의 비율이 많이 다를 때만 흐린 배경을 쓴다."""
+    if clip.get("fit") in ("cover", "blur"):
+        return clip["fit"]
+    photo, screen = info["width"] / max(1, info["height"]), w / h
+    return "blur" if max(photo, screen) / min(photo, screen) > 1.25 else "cover"
+
+
+def _still_segment(clip: dict, src: Path, info: dict, w: int, h: int, fps: float, q: dict, seg: Path):
+    """사진 한 장을 정해진 길이의 영상 구간으로 만든다 (소리는 무음)."""
+    dur = round(clip["out"] - clip["in"], 3)
+    frames = max(1, int(round(dur * fps)))
+    motion = clip.get("motion", "zoom_in")
+    k = 1 if motion == "none" else 2          # 움직임이 있으면 떨림을 줄이려고 두 배 크기에서 작업한다
+    bw, bh = w * k, h * k
+    if _still_fit(clip, info, w, h) == "blur":
+        # 흐린 배경은 작은 크기에서 만든 뒤 키운다 (훨씬 빠르고 결과는 같다)
+        sw, sh = _even(bw / 8), _even(bh / 8)
+        base = (f"[0:v]split[b0][f0];"
+                f"[b0]scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={sw}:{sh},boxblur=6:2,"
+                f"scale={bw}:{bh}:flags=bilinear,eq=brightness=-0.08[bg];"
+                f"[f0]scale={bw}:{bh}:force_original_aspect_ratio=decrease:flags=lanczos[fg];"
+                f"[bg][fg]overlay=(W-w)/2:(H-h)/2[base]")
+    else:
+        base = f"[0:v]scale={bw}:{bh}:force_original_aspect_ratio=increase:flags=lanczos,crop={bw}:{bh}[base]"
+    # 사진은 한 번만 읽어 바탕을 만들고, 그 한 장에서 필요한 만큼 프레임을 뽑는다
+    if motion == "none":
+        tail = f"[base]loop=loop={frames - 1}:size=1:start=0,setpts=N/({fps:g}*TB),fps={fps:g},setsar=1,format=yuv420p[v]"
+    else:
+        z = f"1+{ZOOM}*on/{frames}" if motion == "zoom_in" else f"{1 + ZOOM}-{ZOOM}*on/{frames}"
+        tail = (f"[base]zoompan=z='{z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={frames}:s={w}x{h}:fps={fps:g},"
+                f"setsar=1,format=yuv420p[v]")
+    ff.run(["-i", media.prepare_image(src),
+            "-f", "lavfi", "-t", dur, "-i", "anullsrc=r=48000:cl=stereo",
+            "-filter_complex", f"{base};{tail}", "-map", "[v]", "-map", "1:a:0",
+            "-c:v", "libx264", *q["seg"], "-pix_fmt", "yuv420p", "-r", f"{fps:g}", "-c:a", "pcm_s16le",
+            "-ar", "48000", "-ac", "2", "-t", dur, seg])
+
+
 def _segment(clip: dict, src: Path, info: dict, w: int, h: int, fps: float, q: dict, seg_dir: Path, warnings: list) -> Path:
     dur = round(clip["out"] - clip["in"], 3)
     st = src.stat()
-    raw = f"{src.resolve()}|{st.st_size}|{int(st.st_mtime)}|{clip['in']}|{clip['out']}|{clip.get('crop')}|{clip.get('mute')}|{w}x{h}@{fps}|{q['seg']}"
+    raw = (f"{src.resolve()}|{st.st_size}|{int(st.st_mtime)}|{clip['in']}|{clip['out']}|{clip.get('crop')}|{clip.get('mute')}|"
+           f"{clip.get('motion')}|{clip.get('fit')}|{w}x{h}@{fps}|{q['seg']}")
     seg = seg_dir / (hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20] + ".mov")
     if seg.is_file() and seg.stat().st_size > 0:
+        return seg
+    if info.get("is_image"):
+        _still_segment(clip, src, info, w, h, fps, q, seg)
         return seg
     vf = [f"fps={fps:g}"]
     crop = clip.get("crop")
@@ -86,7 +132,7 @@ def render(edl: dict, src_dir: Path, out_path: Path, quality: str = "final", pro
     for i, clip in enumerate(edl["clips"], 1):
         say(f"구간 자르는 중 {i}/{total}", 0.7 * (i - 1) / total)
         src = src_dir / clip["src"]
-        info = probes.setdefault(clip["src"], ff.probe(src))
+        info = probes.setdefault(clip["src"], media.info(src))
         seg = _segment(clip, src, info, w, h, fps, q, seg_dir, warnings)
         link = job_dir / f"s{i:03d}.mov"
         shutil.copyfile(seg, link)
@@ -106,7 +152,9 @@ def render(edl: dict, src_dir: Path, out_path: Path, quality: str = "final", pro
     if audio.get("bgm"):
         bgm = Path(audio["bgm"]).expanduser()
         bgm_lufs = _lufs(bgm, limit=90)
-        bgm_gain = max(-40.0, min(30.0, audio["target_lufs"] + audio["bgm_offset_db"] - bgm_lufs))
+        # 사진만 쓴 편집처럼 원래 소리가 없으면 배경음이 주인공이므로 목표 음량 그대로 깐다
+        offset = 0.0 if measured <= -60 else audio["bgm_offset_db"]
+        bgm_gain = max(-40.0, min(30.0, audio["target_lufs"] + offset - bgm_lufs))
         inputs += ["-stream_loop", "-1", "-i", bgm]
         fade_out = max(0.0, dur - 2.0)
         chains.append(f"[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume={bgm_gain:.2f}dB,"

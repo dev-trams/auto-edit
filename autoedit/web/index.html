@@ -82,17 +82,17 @@ pre{background:#f7f8fa;border-radius:8px;padding:10px;font-size:12px;overflow:au
     </div>
 
     <div class="card">
-      <h2><span class="n">2</span>촬영본<span class="sp"></span>
+      <h2><span class="n">2</span>촬영본 (영상·사진)<span class="sp"></span>
         <button class="small" onclick="openFolder('src')" title="원본 영상 폴더를 엽니다">폴더 열기</button>
         <button class="small" onclick="document.getElementById('file').click()">파일 추가</button>
-        <input type="file" id="file" multiple accept="video/*" style="display:none" onchange="upload(this.files)">
+        <input type="file" id="file" multiple accept="video/*,image/*,.heic,.heif" style="display:none" onchange="upload(this.files)">
       </h2>
       <div id="sources"></div>
       <div class="row" style="margin-top:8px">
         <button class="ghost small fit" onclick="selectAll()">전체 선택/해제</button><span></span>
         <button class="fit" id="btnAnalyze" onclick="analyze()">선택한 촬영본 분석</button>
       </div>
-      <div class="hint">분석은 무음 구간·음량을 재고 말소리를 받아 적습니다. 결과는 저장되어 다음부터는 바로 뜹니다.</div>
+      <div class="hint">분석은 무음 구간·음량을 재고 말소리를 받아 적습니다. 결과는 저장되어 다음부터는 바로 뜹니다. 사진은 분석 없이 바로 쓸 수 있고, 사진만 골라도 편집됩니다 (한 장에 3초씩, 길이는 결과 표에서 조절).</div>
     </div>
 
     <div class="card">
@@ -139,7 +139,7 @@ pre{background:#f7f8fa;border-radius:8px;padding:10px;font-size:12px;overflow:au
             <div id="warn"></div>
             <label>말로 수정하기</label>
             <div class="row">
-              <input id="revise" placeholder="예: 자막 더 크게 / 배경음 조금 작게 / B형으로" onkeydown="if(event.key==='Enter')revise()">
+              <input id="revise" placeholder="예: 자막 맨 아래로 / 자막 더 크게 / 배경음 조금 작게 / B형으로" onkeydown="if(event.key==='Enter')revise()">
               <button class="fit" onclick="revise()">수정</button>
             </div>
             <div class="hint">수정하면 새 버전(v2, v3…)으로 저장됩니다. 이전 버전은 그대로 남습니다.</div>
@@ -155,7 +155,8 @@ pre{background:#f7f8fa;border-radius:8px;padding:10px;font-size:12px;overflow:au
             <div class="row" style="margin-top:10px">
               <div><label>자막 스타일</label><select id="preset" onchange="E.style.preset=this.value;E.style.margin_bottom_pct=null;dirty()"></select></div>
               <div><label>글자 크기 배율</label><input type="number" step="0.05" id="fscale" onchange="E.style.font_scale=+this.value;dirty()"></div>
-              <div><label>아래 여백 %</label><input type="number" step="1" id="margin" placeholder="기본" onchange="E.style.margin_bottom_pct=this.value===''?null:+this.value;dirty()"></div>
+              <div><label>자막 위치 (아래에서 %)</label><input type="number" step="1" min="0" max="90" id="margin" placeholder="기본" onchange="E.style.margin_bottom_pct=this.value===''?null:+this.value;dirty()">
+                <div style="margin-top:4px;white-space:nowrap"><button class="ghost small" onclick="setPos(null)">하단</button><button class="ghost small" onclick="setPos(45)">가운데</button><button class="ghost small" onclick="setPos(82)">상단</button></div></div>
             </div>
             <div class="row">
               <div><label>목표 음량 (LUFS)</label><input type="number" step="1" id="lufs" onchange="E.audio.target_lufs=+this.value;dirty()"></div>
@@ -220,14 +221,17 @@ function drawSources(){
   if(!S.sources.length){$('sources').innerHTML='<div class="hint">"원본 영상" 폴더가 비어 있습니다. 파일을 넣거나 "파일 추가"를 누르세요.</div>';return}
   $('sources').innerHTML=S.sources.map(s=>{
     const a=s.analysis, on=SEL.has(s.file);
-    let meta=(s.size/1048576).toFixed(1)+'MB', extra='';
-    if(a){
+    let meta=(s.is_image?'사진 · ':'')+(s.size/1048576).toFixed(1)+'MB', extra='';
+    if(a&&a.is_image){
+      meta=`사진 · ${a.width}×${a.height}`;
+      extra=`<div class="thumbs">${(a.thumbs||[]).map(t=>`<img loading="lazy" src="/media/thumb/${t.file}">`).join('')}</div>`;
+    }else if(a){
       meta=`${fmt(a.duration)} · ${a.width}×${a.height}${a.hdr?' · HDR':''} · 무음 ${(a.silence_ratio*100).toFixed(0)}%`+(a.transcribed?` · 말소리 ${(a.speech_ratio*100).toFixed(0)}%`:'');
       extra=`<div class="thumbs">${(a.thumbs||[]).map(t=>`<img loading="lazy" title="${t.t}초" src="/media/thumb/${t.file}">`).join('')}</div>`;
       if(a.speech&&a.speech.length)extra+=`<div class="speech">${a.speech.map(p=>`<div><b>${p.start.toFixed(1)}</b>${esc(p.text)}</div>`).join('')}</div>`;
       else if(a.transcribe_error)extra+=`<div class="hint">${esc(a.transcribe_error)}</div>`;
       else if(a.transcribed)extra+=`<div class="hint">말소리가 잡히지 않았습니다.</div>`;
-    }else meta+=' · 아직 분석 안 함';
+    }else if(!s.is_image)meta+=' · 아직 분석 안 함';
     return `<div class="src ${on?'sel':''}"><div class="top"><input type="checkbox" ${on?'checked':''} onchange="toggle('${esc(s.file)}',this.checked)"><span class="name" title="${esc(s.file)}">${esc(s.file)}</span></div><div class="meta">${meta}</div>${extra}</div>`;
   }).join('');
 }
@@ -328,15 +332,19 @@ function drawEdl(warnings){
   $('note').textContent=`v${E.version} · ${who}${E.based_on?` · v${E.based_on}에서 수정`:''}\n${E.note||''}`;
   $('warn').innerHTML=warnings.map(w=>`<div class="warnbox">${esc(w)}</div>`).join('');
   const files=S.sources.map(s=>s.file);
-  $('clips').innerHTML='<tr><th></th><th>원본</th><th>시작</th><th>끝</th><th>길이</th><th>음소거</th><th>이유</th><th></th></tr>'+E.clips.map((c,i)=>`<tr>
+  const isImg=f=>!!(S.sources.find(x=>x.file===f)||{}).is_image;
+  const opt=(v,cur,label)=>`<option value="${v}" ${v===cur?'selected':''}>${label}</option>`;
+  $('clips').innerHTML='<tr><th></th><th>원본</th><th>시작</th><th>끝</th><th>길이</th><th>음소거 / 사진 효과</th><th>이유</th><th></th></tr>'+E.clips.map((c,i)=>{const img=isImg(c.src);return `<tr>
     <td class="num">${i+1}</td>
-    <td><select onchange="E.clips[${i}].src=this.value;dirty()">${[...new Set([c.src,...files])].map(f=>`<option ${f===c.src?'selected':''}>${esc(f)}</option>`).join('')}</select></td>
-    <td><input type="number" step="0.1" min="0" value="${c.in}" onchange="E.clips[${i}].in=+this.value;dirty();drawEdl([])"></td>
+    <td><select style="min-width:130px" onchange="setSrc(${i},this.value)">${[...new Set([c.src,...files])].map(f=>`<option ${f===c.src?'selected':''}>${esc(f)}</option>`).join('')}</select></td>
+    <td><input type="number" step="0.1" min="0" value="${c.in}" ${img?'disabled title="사진은 길이만 정합니다"':''} onchange="E.clips[${i}].in=+this.value;dirty();drawEdl([])"></td>
     <td><input type="number" step="0.1" min="0" value="${c.out}" onchange="E.clips[${i}].out=+this.value;dirty();drawEdl([])"></td>
     <td class="len">${(c.out-c.in).toFixed(1)}초</td>
-    <td style="text-align:center"><input type="checkbox" ${c.mute?'checked':''} onchange="E.clips[${i}].mute=this.checked;dirty()"></td>
+    <td style="text-align:center;white-space:nowrap">${img
+      ?`<select style="width:auto" title="움직임" onchange="E.clips[${i}].motion=this.value;dirty()">${opt('zoom_in',c.motion||'zoom_in','확대')}${opt('zoom_out',c.motion,'축소')}${opt('none',c.motion,'고정')}</select> <select style="width:auto" title="화면 맞춤" onchange="setFit(${i},this.value)">${opt('',c.fit||'','자동')}${opt('cover',c.fit,'꽉 채움')}${opt('blur',c.fit,'전체 보이기')}</select>`
+      :`<input type="checkbox" ${c.mute?'checked':''} onchange="E.clips[${i}].mute=this.checked;dirty()">`}</td>
     <td><input value="${esc(c.reason||'')}" onchange="E.clips[${i}].reason=this.value;dirty()"></td>
-    <td><button class="ghost small" title="위로" onclick="moveClip(${i},-1)">↑</button><button class="ghost small" title="삭제" onclick="E.clips.splice(${i},1);dirty();drawEdl([])">✕</button></td></tr>`).join('');
+    <td><button class="ghost small" title="위로" onclick="moveClip(${i},-1)">↑</button><button class="ghost small" title="삭제" onclick="E.clips.splice(${i},1);dirty();drawEdl([])">✕</button></td></tr>`}).join('');
   $('caps').innerHTML='<tr><th>시작</th><th>끝</th><th>문구</th><th>강조</th><th></th></tr>'+E.captions.map((c,i)=>`<tr>
     <td><input type="number" step="0.1" min="0" value="${c.start}" onchange="E.captions[${i}].start=+this.value;dirty()"></td>
     <td><input type="number" step="0.1" min="0" value="${c.end}" onchange="E.captions[${i}].end=+this.value;dirty()"></td>
@@ -347,6 +355,13 @@ function drawEdl(warnings){
   $('lufs').value=E.audio.target_lufs; $('bgm').value=E.audio.bgm||''; $('bgmoff').value=E.audio.bgm_offset_db;
   $('btnSave').disabled=!DIRTY; drawTotals(); $('json').textContent=JSON.stringify(E,null,2);
 }
+function setSrc(i,f){
+  const c=E.clips[i], img=!!(S.sources.find(x=>x.file===f)||{}).is_image; c.src=f;
+  if(img){c.out=+(Math.max(0.5,c.out-c.in)).toFixed(2);c.in=0;c.motion=c.motion||'zoom_in'}else{delete c.motion;delete c.fit}
+  dirty();drawEdl([]);
+}
+function setFit(i,v){if(v)E.clips[i].fit=v;else delete E.clips[i].fit;dirty()}
+function setPos(v){E.style.margin_bottom_pct=v;$('margin').value=v??'';dirty()}
 function moveClip(i,d){const j=i+d;if(j<0||j>=E.clips.length)return;[E.clips[i],E.clips[j]]=[E.clips[j],E.clips[i]];dirty();drawEdl([])}
 function addClip(){const f=(S.sources[0]||{}).file;if(!f)return;E.clips.push({src:f,in:0,out:3,mute:false,reason:''});dirty();drawEdl([])}
 function addCap(){const t=E.captions.length?E.captions[E.captions.length-1].end+0.2:0;E.captions.push({start:+t.toFixed(2),end:+(t+2).toFixed(2),text:'',emphasis:false});dirty();drawEdl([])}

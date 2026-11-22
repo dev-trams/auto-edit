@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-from . import ff
+from . import ff, media
 
 EDL_SCHEMA = {
     "type": "object",
@@ -15,10 +15,14 @@ EDL_SCHEMA = {
             "required": ["width", "height", "fps"]},
         "clips": {"type": "array", "description": "완성본에 이어 붙일 순서대로", "items": {
             "type": "object", "properties": {
-                "src": {"type": "string", "description": "원본 파일 이름"},
-                "in": {"type": "number", "description": "사용 시작 (초)"},
-                "out": {"type": "number", "description": "사용 끝 (초)"},
+                "src": {"type": "string", "description": "원본 파일 이름 (영상 또는 사진)"},
+                "in": {"type": "number", "description": "사용 시작 (초). 사진이면 0"},
+                "out": {"type": "number", "description": "사용 끝 (초). 사진이면 보여 줄 길이"},
                 "mute": {"type": "boolean"},
+                "motion": {"type": "string", "enum": ["zoom_in", "zoom_out", "none"],
+                           "description": "사진 전용: 천천히 확대/축소. 기본 zoom_in"},
+                "fit": {"type": "string", "enum": ["cover", "blur"],
+                        "description": "사진 전용: cover=화면을 꽉 채우고 넘치는 부분을 자름, blur=사진 전체를 보여 주고 빈 곳은 흐린 배경"},
                 "reason": {"type": "string", "description": "이 구간을 고른 이유 (짧게)"}},
             "required": ["src", "in", "out"]}},
         "captions": {"type": "array", "description": "완성본 타임라인 기준 시간", "items": {
@@ -29,7 +33,7 @@ EDL_SCHEMA = {
         "style": {"type": "object", "properties": {
             "preset": {"type": "string", "enum": ["A", "B", "C"]},
             "font_scale": {"type": "number", "description": "1.0이 기본"},
-            "margin_bottom_pct": {"type": "number", "description": "자막의 아래 여백 (화면 높이 %)"}}},
+            "margin_bottom_pct": {"type": "number", "description": "자막 아랫변이 화면 아래에서 떨어진 거리 (화면 높이 %). 하단 8~15, 가운데 약 45, 상단 약 82"}}},
         "audio": {"type": "object", "properties": {
             "target_lufs": {"type": "number"},
             "bgm": {"type": ["string", "null"], "description": "배경음 파일 경로. 사용자가 준 경로만 사용"},
@@ -68,14 +72,28 @@ def normalize(edl: dict, src_dir: Path) -> tuple:
         if not path.is_file():
             warnings.append(f"원본에 없는 파일이라 뺐습니다: {name}")
             continue
-        dur = ff.probe(path)["duration"]
-        cin = max(0.0, float(c.get("in", 0)))
-        cout = min(dur, float(c.get("out", dur)))
+        still = media.is_image(path)
+        if still:
+            try:
+                media.prepare_image(path)
+            except ff.FFError as exc:
+                warnings.append(str(exc))
+                continue
+            length = float(c.get("out", media.STILL_SECONDS)) - float(c.get("in", 0))
+            cin, cout = 0.0, min(media.STILL_MAX, length if length > 0 else media.STILL_SECONDS)
+        else:
+            dur = ff.probe(path)["duration"]
+            cin = max(0.0, float(c.get("in", 0)))
+            cout = min(dur, float(c.get("out", dur)))
         if cout - cin < 0.2:
             warnings.append(f"너무 짧아 뺐습니다: {name} {cin:.2f}~{cout:.2f}초")
             continue
         clip = {"src": name, "in": round(cin, 3), "out": round(cout, 3), "mute": bool(c.get("mute", False)),
                 "reason": str(c.get("reason", ""))}
+        if still:
+            clip["motion"] = c.get("motion") if c.get("motion") in ("zoom_in", "zoom_out", "none") else "zoom_in"
+            if c.get("fit") in ("cover", "blur"):
+                clip["fit"] = c["fit"]
         crop = c.get("crop")
         if isinstance(crop, dict) and all(k in crop for k in ("x", "y", "w", "h")):
             clip["crop"] = {k: min(1.0, max(0.0, float(crop[k]))) for k in ("x", "y", "w", "h")}
@@ -93,7 +111,8 @@ def normalize(edl: dict, src_dir: Path) -> tuple:
     st = edl.get("style") or {}
     out["style"] = {"preset": str(st.get("preset", "C")).upper() if str(st.get("preset", "C")).upper() in "ABC" else "C",
                     "font_scale": min(3.0, max(0.4, float(st.get("font_scale", 1.0) or 1.0))),
-                    "margin_bottom_pct": st.get("margin_bottom_pct")}
+                    "margin_bottom_pct": (None if st.get("margin_bottom_pct") is None
+                                          else min(90.0, max(0.0, float(st["margin_bottom_pct"]))))}
     if st.get("font"):
         out["style"]["font"] = str(st["font"])
     au = edl.get("audio") or {}

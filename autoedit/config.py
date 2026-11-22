@@ -10,6 +10,7 @@ SETTINGS_FILE = APP_DIR / "settings.json"
 
 SUBDIRS = {"src": "원본 영상", "ref": "레퍼런스", "out": "완성본"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi"}
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic", ".heif"}
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
 
 DEFAULTS = {

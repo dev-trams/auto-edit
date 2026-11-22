@@ -4,11 +4,11 @@ import json
 import re
 from pathlib import Path
 
-from . import config, ff, transcribe
+from . import config, ff, media, transcribe
 
 SILENCE_DB = -35
 SILENCE_MIN = 0.4
-ANALYSIS_VERSION = 4
+ANALYSIS_VERSION = 5
 
 
 def _key(path: Path) -> str:
@@ -64,7 +64,18 @@ def analyze_clip(path: Path, do_transcribe: bool = True, progress=None) -> dict:
             return data
     say = progress or (lambda m: None)
     say(f"{path.name}: 기본 정보")
-    info = ff.probe(path)
+    info = media.info(path)
+    if info["is_image"]:
+        thumb_dir = config.WORK_DIR / "thumbs"
+        thumb_dir.mkdir(parents=True, exist_ok=True)
+        name = f"{key}_00.jpg"
+        if not (thumb_dir / name).is_file():
+            ff.run(["-i", media.prepare_image(path), "-frames:v", "1", "-vf", "scale=-2:320", "-q:v", "5", thumb_dir / name], check=False)
+        data = {"file": path.name, "key": key, **info, "silences": [], "lufs": -70.0, "speech": [], "transcribed": True,
+                "transcribe_error": "", "silence_ratio": 0.0, "speech_ratio": 0.0,
+                "thumbs": [{"t": 0, "file": name}] if (thumb_dir / name).is_file() else []}
+        cache.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        return data
     data = {"file": path.name, "key": key, **info, "silences": [], "lufs": -70.0, "speech": [],
             "transcribed": False, "transcribe_error": ""}
     if info["has_audio"]:

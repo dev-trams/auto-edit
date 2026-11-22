@@ -1,6 +1,8 @@
 """PC 안에서만 도는 웹 서버. 브라우저 화면과 편집 엔진을 잇는다."""
 import json
 import os
+import subprocess
+import sys
 import threading
 import traceback
 import uuid
@@ -10,6 +12,7 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 
 from . import __version__, analyze, config, edl as edl_mod, ff, planner, reference, render, style, transcribe
+from .media import is_image
 
 app = FastAPI(title="auto-edit")
 WEB = Path(__file__).parent / "web"
@@ -51,10 +54,10 @@ def start_job(label: str, fn) -> dict:
 def _sources(d: dict) -> list:
     out = []
     for p in sorted(d["src"].iterdir(), key=lambda x: x.name.lower()):
-        if p.is_file() and p.suffix.lower() in config.VIDEO_EXT:
+        if p.is_file() and p.suffix.lower() in (config.VIDEO_EXT | config.IMAGE_EXT):
             cache = config.WORK_DIR / "analysis" / f"{analyze._key(p)}.json"
             data = json.loads(cache.read_text(encoding="utf-8")) if cache.is_file() else None
-            out.append({"file": p.name, "size": p.stat().st_size, "analysis": data})
+            out.append({"file": p.name, "size": p.stat().st_size, "is_image": is_image(p), "analysis": data})
     return out
 
 
@@ -87,6 +90,7 @@ def state():
     size = s.get("whisper_model", "small")
     return {
         "version": __version__,
+        "paths": {k: str(d[k]) for k in ("root", "src", "ref", "out")},
         "settings": {"workspace": str(d["root"]), "project": _project(), "has_key": bool(config.api_key()),
                      "whisper_model": size, "model_plan": s["model_plan"], "model_revise": s["model_revise"]},
         "env": {"ffmpeg": ff.available(), "hdr_convert": ff.available() and ff.has_filter("zscale"),
@@ -121,7 +125,7 @@ async def upload(files: list[UploadFile] = File(...)):
     saved = []
     for f in files:
         name = Path(f.filename or "upload").name
-        if Path(name).suffix.lower() not in config.VIDEO_EXT:
+        if Path(name).suffix.lower() not in (config.VIDEO_EXT | config.IMAGE_EXT):
             continue
         dest = d["src"] / name
         n = 1
@@ -253,6 +257,35 @@ async def api_render(request: Request):
         return info
 
     return start_job("최종 내보내기" if quality == "final" else "미리보기", work)
+
+
+def open_command(path: Path, select: bool) -> list:
+    """파일 탐색기(윈도우) / Finder(맥)에서 폴더를 열거나 파일을 선택해 보여 주는 명령."""
+    if sys.platform == "win32":
+        return ["explorer", f"/select,{path}"] if select else ["explorer", str(path)]
+    if sys.platform == "darwin":
+        return ["open", "-R", str(path)] if select else ["open", str(path)]
+    return ["xdg-open", str(path.parent if select else path)]
+
+
+@app.post("/api/open")
+async def api_open(request: Request):
+    """작업 폴더 안의 정해진 폴더만 연다 (임의 경로는 받지 않는다)."""
+    body = await request.json()
+    d = config.dirs()
+    base = d.get(body.get("target", "out"))
+    if base is None:
+        raise HTTPException(400, "열 수 없는 위치입니다.")
+    target, select = base, False
+    if body.get("file"):
+        cand = base / Path(str(body["file"])).name
+        if cand.is_file():
+            target, select = cand, True
+    try:
+        subprocess.Popen(open_command(target, select), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        raise HTTPException(500, f"폴더를 열지 못했습니다. 직접 열어 주세요: {base}")
+    return {"path": str(target)}
 
 
 @app.post("/api/shutdown")

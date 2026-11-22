@@ -9,7 +9,7 @@ datas = [(os.path.join(ROOT, "autoedit", "web"), os.path.join("autoedit", "web")
 binaries = []
 hidden = collect_submodules("uvicorn") + ["autoedit.server", "autoedit.selftest", "anthropic"]
 
-for pkg in ("sherpa_onnx", "python_multipart", "multipart", "yt_dlp"):
+for pkg in ("sherpa_onnx", "python_multipart", "multipart", "yt_dlp", "pillow_heif"):
     try:
         d, b, h = collect_all(pkg)
         datas += d

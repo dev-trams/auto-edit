@@ -80,6 +80,10 @@ def rule_plan(analyses: list, mode: str = "auto", caption_lines=None, clip_len: 
     t = 0.0
     if mode == "talk":
         for a in analyses:
+            if a.get("is_image"):
+                plan["clips"].append({"src": a["file"], "in": 0.0, "out": clip_len, "mute": False, "reason": "사진"})
+                t += clip_len
+                continue
             for s, e in _keep_ranges(a):
                 plan["clips"].append({"src": a["file"], "in": s, "out": e, "mute": False, "reason": "말소리 구간"})
                 for sp in a.get("speech", []):
@@ -92,30 +96,85 @@ def rule_plan(analyses: list, mode: str = "auto", caption_lines=None, clip_len: 
         plan["note"] = "말소리 구간만 남기고 무음을 잘랐습니다 (규칙 기반)."
     else:
         for i, a in enumerate(analyses):
-            head = min(0.5, a["duration"] * 0.1)
-            length = max(0.3, min(clip_len, a["duration"] - 2 * head))
+            if a.get("is_image"):
+                head, length = 0.0, clip_len
+            else:
+                head = min(0.5, a["duration"] * 0.1)
+                length = max(0.3, min(clip_len, a["duration"] - 2 * head))
             plan["clips"].append({"src": a["file"], "in": round(head, 2), "out": round(head + length, 2),
-                                  "mute": False, "reason": "가운데 구간"})
+                                  "mute": False, "reason": "사진" if a.get("is_image") else "가운데 구간"})
             if i < len(caption_lines):
                 line = caption_lines[i]
                 plan["captions"].append({"start": round(t + 0.15, 2), "end": round(t + length - 0.1, 2),
                                          "text": line.lstrip("*").strip(), "emphasis": line.startswith("*")})
             t += length
-        plan["audio"]["target_lufs"] = -16 if speech_ratio >= 0.3 else -23
-        plan["note"] = "클립마다 가운데 구간을 쓰고, 입력한 자막을 순서대로 붙였습니다 (규칙 기반)."
+        only_photos = all(a.get("is_image") for a in analyses)
+        plan["audio"]["target_lufs"] = -16 if (speech_ratio >= 0.3 or only_photos) else -23
+        plan["note"] = ("사진을 한 장씩 순서대로 보여 주고, 입력한 자막을 붙였습니다 (규칙 기반)." if only_photos else
+                        "클립마다 가운데 구간을 쓰고, 입력한 자막을 순서대로 붙였습니다 (규칙 기반).")
     return plan
 
 
 _RULES = [
     (r"자막.*(크게|키워|키우)", lambda e: e["style"].__setitem__("font_scale", round(e["style"]["font_scale"] * 1.15, 3)), "자막을 한 단계 키웠습니다."),
     (r"자막.*(작게|줄여|줄이)", lambda e: e["style"].__setitem__("font_scale", round(e["style"]["font_scale"] / 1.15, 3)), "자막을 한 단계 줄였습니다."),
-    (r"자막.*(위로|올려|올리)", lambda e: e["style"].__setitem__("margin_bottom_pct", (e["style"].get("margin_bottom_pct") or 11) + 4), "자막을 위로 올렸습니다."),
-    (r"자막.*(아래로|내려|내리)", lambda e: e["style"].__setitem__("margin_bottom_pct", max(2, (e["style"].get("margin_bottom_pct") or 11) - 4)), "자막을 아래로 내렸습니다."),
     (r"(배경음|음악|bgm).*(작게|줄여|줄이)", lambda e: e["audio"].__setitem__("bgm_offset_db", e["audio"]["bgm_offset_db"] - 3), "배경음을 3dB 줄였습니다."),
     (r"(배경음|음악|bgm).*(크게|키워|키우)", lambda e: e["audio"].__setitem__("bgm_offset_db", min(0, e["audio"]["bgm_offset_db"] + 3)), "배경음을 3dB 키웠습니다."),
     (r"(소리|음량|볼륨).*(크게|키워|키우)", lambda e: e["audio"].__setitem__("target_lufs", e["audio"]["target_lufs"] + 2), "전체 소리를 키웠습니다."),
     (r"(소리|음량|볼륨).*(작게|줄여|줄이)", lambda e: e["audio"].__setitem__("target_lufs", e["audio"]["target_lufs"] - 2), "전체 소리를 줄였습니다."),
 ]
+
+
+_CAPTION = r"(자막|캡션|글자|글씨|텍스트)"
+_SMALL = r"(조금|살짝|약간|찔끔|소폭|미세)"
+_BIG = r"(많이|확 |훨씬|더 더|팍)"
+_BOTTOM_END = r"(맨\s*아래|맨\s*밑|하단|바닥|끝까지|제일\s*(아래|밑))"
+_DOWN = r"(아래|밑|내려|내리|낮춰|낮게|낮추)"
+_TOP_END = r"(맨\s*위|상단|꼭대기|제일\s*위)"
+_UP = r"(위로|위에|위쪽|올려|올리|높여|높게|높이)"
+_CENTER = r"(가운데|중앙|중간|정중앙)"
+CENTER_PCT, TOP_PCT = 45, 82
+
+
+def _move_caption(edl: dict, msg: str):
+    """자막 위치 요청을 해석한다. 여백 값은 '자막 아랫변이 화면 아래에서 떨어진 거리(화면 높이 %)'.
+
+    방향만 말하면("아래로 내려 줘") 눈에 띄게 옮긴다: 화면 중간에 있던 자막은 하단 기본 위치로 보낸다.
+    "조금"이 붙으면 4%씩, "많이"가 붙으면 20%씩 움직인다.
+    """
+    if not re.search(_CAPTION, msg):
+        return None
+    from . import style as style_mod
+    st = edl["style"]
+    base = style_mod.PRESETS.get(st.get("preset", "C"), style_mod.PRESETS["C"])["margin_bottom_pct"]
+    cur = st.get("margin_bottom_pct")
+    cur = base if cur is None else float(cur)
+    small, big = re.search(_SMALL, msg), re.search(_BIG, msg)
+    num = re.search(r"(\d{1,2})\s*(%|퍼센트|프로)", msg)
+    if num and re.search(r"(위치|여백|아래에서|밑에서|높이)", msg):
+        new = float(num.group(1))
+    elif re.search(_BOTTOM_END, msg):
+        new = min(cur, base)
+    elif re.search(_TOP_END, msg):
+        new = TOP_PCT
+    elif re.search(_DOWN, msg):
+        new = cur - 4 if small else cur - 20 if big else (base if cur > 25 else cur - 6)
+    elif re.search(_UP, msg):
+        new = cur + 4 if small else cur + 20 if big else cur + 10
+    elif re.search(_CENTER, msg):
+        new = CENTER_PCT
+    else:
+        return None
+    new = max(2.0, min(88.0, round(new, 1)))
+    if new == cur:
+        return f"자막은 이미 화면 아래에서 {cur:g}% 위치입니다. 더 내리려면 '맨 아래로' 또는 '아래에서 5%'처럼 말해 주세요."
+    st["margin_bottom_pct"] = new
+    return f"자막을 화면 아래에서 {new:g}% 위치로 옮겼습니다 (이전 {cur:g}%)."
+
+
+def _is_simple(message: str) -> bool:
+    """한 가지만 요청한 짧은 문장인지. 여러 요청이 섞이면 규칙으로는 일부만 처리되므로 Claude에 맡긴다."""
+    return len(message) <= 30 and not re.search(r"(그리고|[가-힣]고\s|,|，|및|또 |\n|다음에|면서)", message)
 
 
 def rule_revise(edl: dict, message: str) -> dict:
@@ -127,13 +186,16 @@ def rule_revise(edl: dict, message: str) -> dict:
     if m:
         new["style"].update(preset=m.group(1).upper(), margin_bottom_pct=None)
         notes.append(f"자막을 {m.group(1).upper()}형으로 바꿨습니다.")
+    moved = _move_caption(new, msg)
+    if moved:
+        notes.append(moved)
     for pattern, fn, note in _RULES:
         if re.search(pattern, msg):
             fn(new)
             notes.append(note)
     if not notes:
         raise NeedsAI("이 요청은 Claude API 키가 있어야 처리할 수 있습니다. (키 없이 되는 것: 자막 크게/작게, "
-                      "위로/아래로, A·B·C형, 배경음·소리 크게/작게)")
+                      "자막 위치(맨 아래로/가운데로/위로/조금 내려), A·B·C형, 배경음·소리 크게/작게)")
     new.update(planner="rule", note=" ".join(notes), based_on=edl.get("version"))
     return new
 
@@ -151,14 +213,22 @@ SYSTEM = """당신은 영상 편집자입니다. 촬영본 분석 결과를 보�
   사용자가 자막 문구를 직접 준 경우에는 그 문구를 그대로 씁니다.
 - 자막은 한 줄, 한 호흡 단위(대략 16자 이내)로 나눕니다.
 - 전환 효과는 없습니다. 하드 컷만 씁니다.
+- kind가 photo인 파일은 사진입니다. in은 0, out은 보여 줄 길이(보통 2~4초, 자막이 길면 더 길게)로 씁니다.
+  motion(zoom_in/zoom_out/none)으로 느린 확대·축소를 고를 수 있고, 사진만으로 된 편집에서는 번갈아 쓰면 덜 단조롭습니다.
+  fit은 보통 비워 둡니다(자동). 사진 전체가 꼭 보여야 하면 blur, 화면을 꽉 채워야 하면 cover.
 - 배경음(audio.bgm)은 사용자가 경로를 준 경우에만 넣습니다. 그렇지 않으면 null입니다.
 - 스타일 메모가 있으면 그 기준을 따릅니다.
+- style.margin_bottom_pct는 자막 아랫변이 화면 아래에서 떨어진 거리(화면 높이 %)입니다.
+  하단 자막은 8~15, 화면 가운데는 약 45, 상단은 약 82입니다. 특별한 이유가 없으면 하단(8~15)에 둡니다.
+- 위치·크기 수정 요청은 눈에 띄게 반영합니다. "아래로/밑으로 내려 줘"는 하단(8~15)으로 옮기라는 뜻이고,
+  "조금/살짝"이 붙었을 때만 3~5 정도로 작게 움직입니다. style.font_scale도 "조금"이 없으면 15% 이상 바꿉니다.
 - 확신이 없는 판단은 note에 한국어로 적습니다.
 - 답은 글로 쓰지 말고 반드시 submit_edl 도구 호출로 제출합니다."""
 
 
 def _summary(analyses: list) -> list:
-    return [{"file": a["file"], "duration": a["duration"], "width": a["width"], "height": a["height"],
+    return [{"file": a["file"], "kind": "photo" if a.get("is_image") else "video",
+             "duration": None if a.get("is_image") else a["duration"], "width": a["width"], "height": a["height"],
              "lufs": a.get("lufs"), "silences": a.get("silences", []), "speech": a.get("speech", [])} for a in analyses]
 
 
@@ -254,10 +324,13 @@ def claude_revise(edl: dict, message: str, analyses: list) -> dict:
 
 
 def revise(edl: dict, message: str, analyses: list) -> dict:
-    """단순한 요청은 규칙으로, 나머지는 Claude로."""
+    """한 가지만 말한 단순한 요청은 규칙으로, 여러 요청이 섞였거나 규칙에 없는 요청은 Claude로."""
+    has_key = bool(config.api_key())
+    if has_key and not _is_simple(message):
+        return claude_revise(edl, message, analyses)
     try:
         return rule_revise(edl, message)
     except NeedsAI:
-        if not config.api_key():
+        if not has_key:
             raise
         return claude_revise(edl, message, analyses)
